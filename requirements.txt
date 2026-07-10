@@ -1,0 +1,7 @@
+PySide6>=6.8
+mss>=9.0
+numpy
+opencv-python
+rapidocr>=2.0
+onnxruntime
+deep-translator>=1.11
