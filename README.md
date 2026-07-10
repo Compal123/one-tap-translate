@@ -1,12 +1,27 @@
-# Dịch Màn Hình
+# Screen Translator (Dịch Màn Hình)
 
-Bong bóng nổi trên màn hình Windows — bật một cái là **toàn bộ chữ trên màn hình được dịch sang tiếng Việt**, đè lên đúng vị trí chữ gốc, chuột bấm xuyên qua, dùng app bên dưới bình thường. Hoạt động với mọi ứng dụng: trình duyệt, PDF dạng ảnh, game, phần mềm máy móc...
+🇻🇳 [Bản tiếng Việt ở đây](README.vi.md)
 
-Giống tính năng "luôn dịch" của Chrome, nhưng cho **cả màn hình** chứ không riêng trang web.
+A floating bubble for Windows that translates **everything on your screen** — overlaying translations right on top of the original text. Works with any application: browsers, image-based PDFs, games, industrial/HMI software, video subtitles...
 
-## Cài đặt
+Think of Chrome's "always translate", but for your **entire screen**, not just web pages.
 
-Yêu cầu: Windows 10/11, Python 3.10+.
+## Why?
+
+Built by a Vietnamese speaker who reads no other language. Chrome translates web pages, but nothing translates the rest of the screen — desktop apps, machine HMIs, PDFs that are just images. Windows' built-in OCR doesn't even support Vietnamese. This app fills that gap, and can target any language Google Translate supports.
+
+## Features
+
+- **Live mode** — scans the screen continuously, overlays translations in place, and your mouse **clicks through** the overlay so you keep using the app underneath normally. Waits until the screen stops changing (no wasted work while you scroll).
+- **Single shot** — click the bubble, get a translated snapshot, click to dismiss.
+- **Region select** — drag a rectangle, translate only that area.
+- **Translation memory** — every translated line is cached to disk (`bo-nho-dich.json`). Previously seen text appears instantly, offline, forever. The longer you use it, the faster it gets.
+- **Settings window** — right-click the bubble → Settings: target language, scan interval, sensitivity. Applies immediately.
+- OCR runs **locally** (RapidOCR/ONNX — no Windows OCR language packs needed); translation uses Google Translate (free web endpoint).
+
+## Install
+
+Requires Windows 10/11 and Python 3.10+.
 
 ```
 git clone https://github.com/Compal123/dich-man-hinh.git
@@ -15,37 +30,26 @@ python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
 
-## Cách chạy
+## Run
 
-Nhấp đúp vào `run.bat` (hoặc chạy `.venv\Scripts\python.exe main.py` để xem log lỗi).
+Double-click `run.bat` (or run `.venv\Scripts\python.exe main.py` to see logs).
 
-## Cách dùng
+- **Click the bubble** to trigger the current mode (live toggle / single shot / region select).
+- **Right-click** to switch modes, open settings, clear the translation memory, or quit.
+- **Drag** the bubble to move it.
 
-- **Nhấn bong bóng** → BẬT/TẮT chế độ **dịch sống**: bong bóng chuyển xanh lá "ON",
-  màn hình được quét liên tục, bản dịch đè lên chữ gốc, chuột bấm xuyên qua —
-  cứ dùng app bên dưới bình thường.
-- **Chuột phải → "Dịch một lần"** → chế độ cũ: chụp - dịch - nhấn chuột/Esc để đóng.
-- **Kéo bong bóng** để di chuyển; **chuột phải → Thoát** để tắt app.
-- Chữ đã dịch được nhớ lại (cache) nên hiện lại tức thì, không tốn mạng;
-  màn hình không thay đổi thì app không quét lại.
+## How it works
 
-## Ghi chú kỹ thuật
+Capture screen (mss) → detect if the screen is still changing (frame diff, skip if scrolling) → OCR (RapidOCR) → skip lines already in the target language → translate uncached lines (Google) → paint overlay boxes at the original text positions. The overlay windows exclude themselves from screen capture (`WDA_EXCLUDEFROMCAPTURE`) so the scanner never re-reads its own output.
 
-- OCR: RapidOCR (PaddleOCR bản ONNX) — chạy offline trên máy, đọc được Anh/Trung/Việt và nhiều ngôn ngữ khác, không phụ thuộc gói OCR của Windows.
-- Dịch: Google Translate (web) qua thư viện `deep-translator` — cần mạng, miễn phí, phù hợp bản thử nghiệm. Bản sau có thể thay bằng LLM để dịch hiểu ngữ cảnh.
-- Mới hỗ trợ màn hình chính (primary monitor).
-- Lần nhấn đầu tiên hơi chậm vì phải nạp model OCR.
+## Roadmap (ideas & PRs welcome)
 
-- Chờ màn hình **đứng yên** mới dịch (đang cuộn trang thì chỉ xóa bản dịch cũ,
-  không tốn công dịch cảnh lướt qua).
-- Bộ nhớ dịch lưu ở `bo-nho-dich.json` — tắt app vẫn nhớ, dùng càng lâu càng nhanh.
-- Tùy chỉnh trong `cai-dat.json` (chuột phải bong bóng → "Mở file cài đặt",
-  sửa xong khởi động lại app): ngôn ngữ đích, chu kỳ quét, độ nhạy thay đổi màn hình.
+1. OCR only the changed screen regions instead of the full frame (lower latency).
+2. Optional offline translation model (no network dependency).
+3. "Deep translate" button for important paragraphs (LLM, context/terminology-aware).
+4. Multi-monitor support.
+5. Android version (bubble + MediaProjection).
 
-## Hướng phát triển (đóng góp/ý tưởng đều hoan nghênh)
+## License
 
-1. Chỉ quét vùng màn hình thay đổi thay vì cả màn hình (giảm trễ OCR).
-2. Tùy chọn dịch offline bằng model trên máy (bỏ phụ thuộc mạng).
-3. Nút "dịch kỹ bằng AI" cho đoạn văn quan trọng (LLM, hiểu ngữ cảnh/thuật ngữ).
-4. Hỗ trợ nhiều màn hình.
-5. Bản Android (bong bóng + MediaProjection).
+MIT
