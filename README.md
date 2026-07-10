@@ -9,7 +9,7 @@ Giống tính năng "luôn dịch" của Chrome, nhưng cho **cả màn hình** 
 Yêu cầu: Windows 10/11, Python 3.10+.
 
 ```
-git clone https://github.com/<user>/dich-man-hinh.git
+git clone https://github.com/Compal123/dich-man-hinh.git
 cd dich-man-hinh
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
