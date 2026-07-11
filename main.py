@@ -364,7 +364,10 @@ def _layout_item(text, rl, others, bounds):
 
 
 def draw_items(painter, items, dpr, bounds):
-    """Vẽ các ô bản dịch đè lên vị trí chữ gốc, không ô nào đè lên ô nào."""
+    """Vẽ các ô bản dịch đè lên vị trí chữ gốc, không ô nào đè lên ô nào.
+
+    Trả về list (box, nguyên_văn, bị_cắt) để lớp kết quả bắt hover.
+    """
     pending = []
     for it in items:
         if not it["dst"]:
@@ -376,10 +379,12 @@ def draw_items(painter, items, dpr, bounds):
 
     bases = [rl for _t, rl in pending]
     placed = []
+    layout = []
     for idx, (text, rl) in enumerate(pending):
         others = [b for j, b in enumerate(bases) if j != idx] + placed
         box, font, flags, shown = _layout_item(text, rl, others, bounds)
         placed.append(box)
+        layout.append((box, text, shown != text))
 
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(24, 26, 38, 235))
@@ -391,6 +396,7 @@ def draw_items(painter, items, dpr, bounds):
         painter.setClipRect(box.adjusted(0, -5, 0, 5))
         painter.drawText(box.adjusted(5, 0, -3, 0), flags, shown)
         painter.restore()
+    return layout
 
 
 class LiveOverlay(QWidget):
@@ -420,12 +426,18 @@ class LiveOverlay(QWidget):
 
 
 class ResultOverlay(QWidget):
-    """Màn kết quả 'dịch một lần' / 'dịch vùng': nhấn chuột / Esc để đóng."""
+    """Màn kết quả 'dịch một lần' / 'dịch vùng': nhấn chuột / Esc để đóng.
+
+    Rê chuột vào ô bị cắt "…" để xem nguyên văn bản dịch đầy đủ.
+    """
 
     def __init__(self, items, panel_text, dpr):
         super().__init__()
         self.items = items
         self.dpr = dpr or 1.0
+        self._layout = []
+        self._hover = None
+        self.setMouseTracking(True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setGeometry(QApplication.primaryScreen().geometry())
@@ -446,12 +458,46 @@ class ResultOverlay(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), QColor(10, 10, 16, 110))
-        draw_items(p, self.items, self.dpr, QRectF(self.rect()))
+        self._layout = draw_items(p, self.items, self.dpr, QRectF(self.rect()))
         p.setFont(QFont("Segoe UI", 11))
         p.setPen(QPen(QColor(255, 255, 255, 180)))
         p.drawText(QRectF(0, self.height() - 46, self.width(), 30),
-                   Qt.AlignCenter, "Nhấn chuột hoặc Esc để đóng")
+                   Qt.AlignCenter,
+                   "Nhấn chuột hoặc Esc để đóng — rê chuột vào ô có \"…\" "
+                   "để xem đầy đủ")
+
+        # Khung nổi hiện nguyên văn khi rê chuột vào ô bị cắt
+        if self._hover is not None and self._hover < len(self._layout):
+            box, text, _elided = self._layout[self._hover]
+            font = QFont("Segoe UI", 11)
+            fm = QFontMetrics(font)
+            need = fm.boundingRect(QRect(0, 0, 520, 2000),
+                                   Qt.TextWordWrap, text)
+            pw, ph = need.width() + 24, need.height() + 18
+            x = min(box.left(), self.width() - pw - 8)
+            y = box.bottom() + 6
+            if y + ph > self.height() - 8:
+                y = box.top() - ph - 6
+            pop = QRectF(max(8, x), max(8, y), pw, ph)
+            p.setPen(QPen(QColor(90, 170, 255), 1.5))
+            p.setBrush(QColor(20, 24, 40, 250))
+            p.drawRoundedRect(pop, 8, 8)
+            p.setFont(font)
+            p.setPen(QPen(QColor(240, 242, 250)))
+            p.drawText(pop.adjusted(12, 9, -12, -9),
+                       Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, text)
         p.end()
+
+    def mouseMoveEvent(self, event):
+        pos = event.position()
+        hover = None
+        for i, (box, _text, elided) in enumerate(self._layout):
+            if elided and box.contains(pos):
+                hover = i
+                break
+        if hover != self._hover:
+            self._hover = hover
+            self.update()
 
     def mousePressEvent(self, _event):
         self.close()
