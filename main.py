@@ -303,34 +303,93 @@ def run_job(img_bgr, signals, live=False, offset=(0, 0)):
 
 # ---------- Vẽ ----------
 
-def draw_items(painter, items, dpr):
-    """Vẽ các ô bản dịch đè lên vị trí chữ gốc."""
+def _v_overlap(a, b):
+    return a.top() < b.bottom() and b.top() < a.bottom()
+
+
+def _h_overlap(left, right, b):
+    return b.left() < right and left < b.right()
+
+
+def _layout_item(text, rl, others, bounds):
+    """Chọn chỗ vẽ cho một câu dịch (tiếng Việt thường dài hơn chữ gốc).
+
+    Thử theo thứ tự: (1) vừa ô gốc, (2) nhỏ chữ + nới sang phải đến sát
+    ô khác/mép màn hình, (3) xuống dòng mở rộng xuống dưới nếu trống,
+    (4) hết cách thì cắt gọn có dấu "…".
+    Trả về (box, font, flags, text_để_vẽ).
+    """
+    MIN_PT = 8
+    size = max(MIN_PT, min(24, int(rl.height() * 0.52)))
+    font = QFont("Segoe UI", size)
+
+    # 1. Vừa ô gốc (cho phép giảm tối đa 2 cỡ chữ)
+    for s in range(size, max(MIN_PT, size - 2) - 1, -1):
+        font.setPointSize(s)
+        if QFontMetrics(font).horizontalAdvance(text) <= rl.width() - 8:
+            return rl, font, Qt.AlignVCenter | Qt.AlignLeft, text
+
+    # 2. Nới sang phải đến sát ô hàng xóm / mép màn hình
+    max_right = bounds.right() - 4
+    for b in others:
+        if _v_overlap(rl, b) and b.left() > rl.left():
+            max_right = min(max_right, b.left() - 4)
+    max_right = max(max_right, rl.right())  # không bao giờ hẹp hơn ô gốc
+    avail_w = max_right - rl.left()
+    for s in range(size, MIN_PT - 1, -1):
+        font.setPointSize(s)
+        w = QFontMetrics(font).horizontalAdvance(text)
+        if w <= avail_w - 8:
+            box = QRectF(rl.left(), rl.top(), w + 12, rl.height())
+            return box, font, Qt.AlignVCenter | Qt.AlignLeft, text
+
+    # 3. Xuống dòng, mở rộng xuống dưới nếu bên dưới còn trống
+    font.setPointSize(MIN_PT)
+    fm = QFontMetrics(font)
+    max_bottom = bounds.bottom() - 4
+    for b in others:
+        if b.top() >= rl.bottom() - 1 and _h_overlap(rl.left(), max_right, b):
+            max_bottom = min(max_bottom, b.top() - 4)
+    need = fm.boundingRect(QRect(0, 0, int(avail_w) - 12, 10000),
+                           Qt.TextWordWrap, text)
+    if rl.top() + need.height() + 8 <= max_bottom:
+        box = QRectF(rl.left(), rl.top(), avail_w, need.height() + 8)
+        return (box, font,
+                Qt.AlignVCenter | Qt.AlignLeft | Qt.TextWordWrap, text)
+
+    # 4. Hết cách: cắt gọn, có dấu "…" báo còn thiếu
+    elided = fm.elidedText(text, Qt.ElideRight, int(avail_w) - 12)
+    box = QRectF(rl.left(), rl.top(), avail_w, rl.height())
+    return box, font, Qt.AlignVCenter | Qt.AlignLeft, elided
+
+
+def draw_items(painter, items, dpr, bounds):
+    """Vẽ các ô bản dịch đè lên vị trí chữ gốc, không ô nào đè lên ô nào."""
+    pending = []
     for it in items:
         if not it["dst"]:
             continue  # chưa có bản dịch (đang chờ mạng) thì chưa vẽ
         r = it["rect"]
         rl = QRectF(r.x() / dpr, r.y() / dpr,
                     r.width() / dpr, r.height() / dpr).adjusted(-2, -1, 2, 1)
+        pending.append((it["dst"], rl))
+
+    bases = [rl for _t, rl in pending]
+    placed = []
+    for idx, (text, rl) in enumerate(pending):
+        others = [b for j, b in enumerate(bases) if j != idx] + placed
+        box, font, flags, shown = _layout_item(text, rl, others, bounds)
+        placed.append(box)
+
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(24, 26, 38, 235))
-        painter.drawRoundedRect(rl, 4, 4)
-
-        # Cỡ chữ chừa chỗ cho dấu tiếng Việt, thu nhỏ dần cho vừa bề ngang ô
-        size = max(7, min(24, int(rl.height() * 0.52)))
-        font = QFont("Segoe UI", size)
-        while size > 7:
-            font.setPointSize(size)
-            if QFontMetrics(font).horizontalAdvance(it["dst"]) <= rl.width() - 4:
-                break
-            size -= 1
+        painter.drawRoundedRect(box, 4, 4)
         painter.setFont(font)
         painter.setPen(QPen(QColor(240, 242, 250)))
-        # Kẹp chữ trong bề ngang ô (không tràn sang ô bên cạnh),
-        # nhưng nới trần/sàn 5px cho dấu tiếng Việt không bị cắt cụt
+        # Nới trần/sàn 5px trong vùng cắt cho dấu tiếng Việt không cụt
         painter.save()
-        painter.setClipRect(rl.adjusted(0, -5, 0, 5))
-        painter.drawText(rl, Qt.AlignVCenter | Qt.AlignLeft | Qt.TextDontClip,
-                         " " + it["dst"])
+        painter.setClipRect(box.adjusted(0, -5, 0, 5))
+        painter.drawText(box.adjusted(5, 0, -3, 0), flags, shown)
         painter.restore()
 
 
@@ -356,7 +415,7 @@ class LiveOverlay(QWidget):
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        draw_items(p, self.items, self.dpr)
+        draw_items(p, self.items, self.dpr, QRectF(self.rect()))
         p.end()
 
 
@@ -387,7 +446,7 @@ class ResultOverlay(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), QColor(10, 10, 16, 110))
-        draw_items(p, self.items, self.dpr)
+        draw_items(p, self.items, self.dpr, QRectF(self.rect()))
         p.setFont(QFont("Segoe UI", 11))
         p.setPen(QPen(QColor(255, 255, 255, 180)))
         p.drawText(QRectF(0, self.height() - 46, self.width(), 30),
