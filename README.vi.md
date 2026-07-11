@@ -9,8 +9,7 @@ Bong bóng nổi trên Windows dịch chữ trên màn hình — game, app, tài
 - **Dịch live** — quét màn hình liên tục, bản dịch đè tại chỗ. Chuột bấm xuyên qua lớp dịch nên bạn dùng thứ bên dưới bình thường. Chờ màn hình đứng yên mới dịch (không tốn công dịch cảnh đang cuộn).
 - **Dịch một lần** — nhấn bong bóng, xem ảnh chụp màn hình đã dịch, nhấn để đóng.
 - **Dịch vùng chọn** — kéo khoanh một vùng, chỉ dịch vùng đó.
-- **Bộ nhớ dịch** — mọi câu đã dịch được lưu xuống đĩa. Chữ từng gặp hiện tức thì, không cần mạng. Dùng càng lâu càng nhanh.
-- **Màn hình nhiều ngôn ngữ** — các dòng được gom theo hệ chữ (Latin / Hán / Hàn / Nga...) trước khi dịch, nên nhiều ngôn ngữ trên cùng màn hình đều dịch đúng.
+- **Màn hình nhiều ngôn ngữ** — các dòng được gom theo hệ chữ (Latin / Hán / Nhật / Hàn / Nga...) và mỗi nhóm được chỉ định thẳng ngôn ngữ nguồn khi dịch, nên nhiều ngôn ngữ trên cùng màn hình đều dịch đúng — kể cả tiếng Trung phồn thể.
 - **Cửa sổ cài đặt** — chuột phải bong bóng: ngôn ngữ đích (Việt, Anh, Trung, Nhật, Hàn, Nga), chu kỳ quét, độ nhạy. Lưu là áp dụng ngay.
 - OCR chạy trên máy của bạn (RapidOCR/ONNX); dịch bằng Google Translate.
 
@@ -30,7 +29,7 @@ python -m venv .venv
 Nhấp đúp `run.bat` (hoặc chạy `.venv\Scripts\python.exe main.py` để xem log lỗi).
 
 - **Nhấn bong bóng** để chạy chế độ đang chọn (bật/tắt dịch live / dịch một lần / dịch vùng).
-- **Chuột phải** để đổi chế độ, mở cài đặt, xóa bộ nhớ dịch, hoặc thoát.
+- **Chuột phải** để đổi chế độ, mở cài đặt, hoặc thoát.
 - **Kéo** bong bóng để di chuyển.
 
 ## Giấy phép

@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "cai-dat.json")
-CACHE_FILE = os.path.join(BASE_DIR, "bo-nho-dich.json")
 CHUNK_LIMIT = 4000  # giới hạn ký tự mỗi lần gọi Google Dịch
 
 _DEFAULT_SETTINGS = {
@@ -120,10 +119,11 @@ def extract_items(img_bgr):
     return items
 
 
-# ---------- Dịch + bộ nhớ dịch ----------
+# ---------- Dịch ----------
 
+# Nhớ tạm trong phiên (RAM, tắt app là quên): tránh gọi mạng lại
+# cho chữ vừa gặp khi cuộn lên xuống ở chế độ dịch live.
 _cache = {}
-_cache_lock = threading.Lock()
 
 
 def _ck(src):
@@ -163,39 +163,13 @@ def _cached_ok(src, dst):
                               and dst.strip() == src.strip())
 
 
-def load_cache():
-    try:
-        with open(CACHE_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        return
-    # Lọc bỏ mục hỏng (di sản của phiên bản cũ) - sẽ được dịch lại tử tế
-    for key, dst in data.items():
-        src = key.split("\x1f", 1)[-1]
-        if isinstance(dst, str) and _cached_ok(src, dst):
-            _cache[key] = dst
+# Google đoán sai ngôn ngữ nguồn với chữ Trung/Nhật... nên nói thẳng
+# nguồn của từng nhóm hệ chữ thay vì để "auto"
+_SCRIPT_LANG = {"cjk": "zh-CN", "jp": "ja", "kr": "ko",
+                "ru": "ru", "th": "th", "latin": "auto"}
 
 
-def save_cache():
-    with _cache_lock:
-        try:
-            tmp = CACHE_FILE + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(_cache, f, ensure_ascii=False)
-            os.replace(tmp, CACHE_FILE)
-        except Exception:
-            pass
-
-
-def clear_cache():
-    _cache.clear()
-    try:
-        os.remove(CACHE_FILE)
-    except OSError:
-        pass
-
-
-def translate_lines(lines):
+def translate_lines(lines, source="auto"):
     """Dịch danh sách dòng chữ.
 
     Trả về (per_line, full_text): per_line là list cùng độ dài với lines
@@ -203,7 +177,7 @@ def translate_lines(lines):
     """
     from deep_translator import GoogleTranslator
 
-    translator = GoogleTranslator(source="auto", target=S("ngon_ngu_dich"))
+    translator = GoogleTranslator(source=source, target=S("ngon_ngu_dich"))
 
     chunks, current, current_len = [], [], 0
     for line in lines:
@@ -230,12 +204,12 @@ def translate_lines(lines):
             "\n".join(full_parts))
 
 
-def _translate_group(lines):
+def _translate_group(lines, source="auto"):
     """Dịch một nhóm dòng cùng hệ chữ, luôn trả list khớp từng dòng."""
     from deep_translator import GoogleTranslator
-    translator = GoogleTranslator(source="auto", target=S("ngon_ngu_dich"))
+    translator = GoogleTranslator(source=source, target=S("ngon_ngu_dich"))
 
-    per_line, _full = translate_lines(lines)
+    per_line, _full = translate_lines(lines, source)
     if per_line is None:
         # Google gộp/tách dòng -> dịch từng dòng một cho chắc
         per_line = []
@@ -261,20 +235,17 @@ def translate_cached(lines):
     Dòng mới được gom theo hệ chữ (Anh đi với Anh, Trung đi với Trung...)
     để mỗi nhóm được Google nhận diện ngôn ngữ chính xác.
     """
-    missing = {}   # hệ chữ -> list dòng chưa có trong bộ nhớ (không trùng)
+    missing = {}   # hệ chữ -> list dòng chưa có trong nhớ tạm (không trùng)
     seen = set()
     for ln in lines:
         key = _ck(ln)
         if key not in _cache and key not in seen:
             seen.add(key)
             missing.setdefault(_script_of(ln), []).append(ln)
-    changed = False
-    for group in missing.values():
-        for src, dst in zip(group, _translate_group(group)):
+    for script, group in missing.items():
+        source = _SCRIPT_LANG.get(script, "auto")
+        for src, dst in zip(group, _translate_group(group, source)):
             _cache[_ck(src)] = dst
-            changed = True
-    if changed:
-        save_cache()
     return [_cache.get(_ck(ln), ln) for ln in lines]
 
 
@@ -656,7 +627,6 @@ class Bubble(QWidget):
                 action.triggered.connect(lambda _c, k=key: self.set_mode(k))
             menu.addSeparator()
             menu.addAction("Cài đặt...", self.open_settings)
-            menu.addAction("Xóa bộ nhớ dịch", clear_cache)
             menu.addSeparator()
             menu.addAction("Thoát", QApplication.instance().quit)
             menu.exec(event.globalPosition().toPoint())
@@ -849,7 +819,6 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     load_settings()
-    load_cache()
 
     bubble = Bubble()
     bubble.show()

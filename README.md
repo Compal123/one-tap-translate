@@ -9,8 +9,7 @@ A floating bubble for Windows that translates text on your screen — games, app
 - **Live mode** — scans the screen continuously and overlays translations in place. Your mouse clicks through the overlay, so you keep using whatever is underneath normally. Waits until the screen stops changing before translating (nothing wasted while you scroll).
 - **Single shot** — click the bubble, get a translated snapshot of the screen, click to dismiss.
 - **Region select** — drag a rectangle, translate only that area.
-- **Translation memory** — every translated line is saved to disk. Text you've seen before appears instantly, no network needed. The longer you use it, the faster it gets.
-- **Mixed-language screens** — lines are grouped by writing system (Latin / Chinese / Korean / Cyrillic...) before translation, so multiple languages on one screen all translate correctly.
+- **Mixed-language screens** — lines are grouped by writing system (Latin / Chinese / Japanese / Korean / Cyrillic...) and each group is translated with its source language set explicitly, so multiple languages on one screen all translate correctly — including traditional Chinese.
 - **Settings window** — right-click the bubble: target language (Vietnamese, English, Chinese, Japanese, Korean, Russian), scan interval, sensitivity. Saving applies immediately.
 - OCR runs locally on your machine (RapidOCR/ONNX); translation uses Google Translate.
 
@@ -30,7 +29,7 @@ python -m venv .venv
 Double-click `run.bat` (or run `.venv\Scripts\python.exe main.py` to see logs).
 
 - **Click the bubble** to trigger the current mode (live toggle / single shot / region select).
-- **Right-click** to switch modes, open settings, clear the translation memory, or quit.
+- **Right-click** to switch modes, open settings, or quit.
 - **Drag** the bubble to move it.
 
 ## License
