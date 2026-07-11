@@ -2,23 +2,17 @@
 
 🇬🇧 [English version here](README.md)
 
-Bong bóng nổi trên Windows dịch **toàn bộ chữ trên màn hình** — bản dịch đè lên đúng vị trí chữ gốc. Hoạt động với mọi ứng dụng: trình duyệt, PDF dạng ảnh, game, phần mềm máy móc/HMI, phụ đề video...
-
-Giống tính năng "luôn dịch" của Chrome, nhưng cho **cả màn hình** chứ không riêng trang web.
-
-## Vì sao có app này?
-
-Người viết chỉ biết tiếng Việt. Chrome dịch được trang web, nhưng không gì dịch được phần còn lại của màn hình — app desktop, màn hình HMI máy móc, PDF dạng ảnh. OCR có sẵn của Windows thậm chí không hỗ trợ tiếng Việt. App này lấp khoảng trống đó, và dịch được sang mọi ngôn ngữ Google Translate hỗ trợ.
+Bong bóng nổi trên Windows dịch chữ trên màn hình — game, app, tài liệu, bất cứ thứ gì bạn đang nhìn — và đè bản dịch lên đúng vị trí chữ gốc.
 
 ## Tính năng
 
-- **Dịch live** — quét màn hình liên tục, bản dịch đè tại chỗ, chuột **bấm xuyên qua** lớp dịch nên bạn dùng app bên dưới bình thường. Chờ màn hình đứng yên mới dịch (không tốn công dịch cảnh đang cuộn).
-- **Màn hình nhiều ngôn ngữ** — các dòng được gom theo hệ chữ (Latin / Hán / Hàn / Nga...) trước khi dịch, nên tiếng Anh lẫn tiếng Trung cùng màn hình đều dịch đúng.
-- **Dịch một lần** — nhấn bong bóng, xem ảnh chụp đã dịch, nhấn để đóng.
+- **Dịch live** — quét màn hình liên tục, bản dịch đè tại chỗ. Chuột bấm xuyên qua lớp dịch nên bạn dùng thứ bên dưới bình thường. Chờ màn hình đứng yên mới dịch (không tốn công dịch cảnh đang cuộn).
+- **Dịch một lần** — nhấn bong bóng, xem ảnh chụp màn hình đã dịch, nhấn để đóng.
 - **Dịch vùng chọn** — kéo khoanh một vùng, chỉ dịch vùng đó.
-- **Bộ nhớ dịch** — mọi câu đã dịch được lưu xuống đĩa (`bo-nho-dich.json`). Chữ từng gặp hiện tức thì, không cần mạng, vĩnh viễn. Dùng càng lâu càng nhanh.
-- **Cửa sổ cài đặt** — chuột phải bong bóng → Cài đặt: ngôn ngữ đích, chu kỳ quét, độ nhạy. Lưu là áp dụng ngay.
-- OCR chạy **trên máy** (RapidOCR/ONNX — không cần gói ngôn ngữ OCR của Windows); dịch bằng Google Translate (miễn phí).
+- **Bộ nhớ dịch** — mọi câu đã dịch được lưu xuống đĩa. Chữ từng gặp hiện tức thì, không cần mạng. Dùng càng lâu càng nhanh.
+- **Màn hình nhiều ngôn ngữ** — các dòng được gom theo hệ chữ (Latin / Hán / Hàn / Nga...) trước khi dịch, nên nhiều ngôn ngữ trên cùng màn hình đều dịch đúng.
+- **Cửa sổ cài đặt** — chuột phải bong bóng: ngôn ngữ đích (Việt, Anh, Trung, Nhật, Hàn, Nga), chu kỳ quét, độ nhạy. Lưu là áp dụng ngay.
+- OCR chạy trên máy của bạn (RapidOCR/ONNX); dịch bằng Google Translate.
 
 ## Cài đặt
 
@@ -35,21 +29,9 @@ python -m venv .venv
 
 Nhấp đúp `run.bat` (hoặc chạy `.venv\Scripts\python.exe main.py` để xem log lỗi).
 
-- **Nhấn bong bóng** để chạy chế độ đang chọn (bật/tắt dịch sống / dịch một lần / dịch vùng).
+- **Nhấn bong bóng** để chạy chế độ đang chọn (bật/tắt dịch live / dịch một lần / dịch vùng).
 - **Chuột phải** để đổi chế độ, mở cài đặt, xóa bộ nhớ dịch, hoặc thoát.
 - **Kéo** bong bóng để di chuyển.
-
-## Cách hoạt động
-
-Chụp màn hình (mss) → kiểm tra màn hình còn đang thay đổi không (so khung hình, đang cuộn thì chờ) → OCR (RapidOCR) → bỏ qua dòng đã là ngôn ngữ đích → dịch các dòng chưa có trong bộ nhớ (Google) → vẽ ô bản dịch tại vị trí chữ gốc. Các cửa sổ overlay tự loại mình khỏi ảnh chụp màn hình (`WDA_EXCLUDEFROMCAPTURE`) nên máy quét không bao giờ đọc lại chính bản dịch của mình.
-
-## Hướng phát triển (hoan nghênh ý tưởng & PR)
-
-1. Chỉ OCR vùng màn hình thay đổi thay vì cả khung hình (giảm trễ).
-2. Tùy chọn model dịch offline (bỏ phụ thuộc mạng).
-3. Nút "dịch kỹ" cho đoạn văn quan trọng (LLM, hiểu ngữ cảnh/thuật ngữ).
-4. Hỗ trợ nhiều màn hình.
-5. Bản Android (bong bóng + MediaProjection).
 
 ## Giấy phép
 

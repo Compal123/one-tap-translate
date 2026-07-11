@@ -21,7 +21,8 @@ import cv2
 import numpy as np
 from mss import mss
 from PySide6.QtCore import QObject, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QPainter,
+                           QPen, QRadialGradient)
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFormLayout,
                                QMenu, QSpinBox, QTextEdit, QWidget)
@@ -155,12 +156,24 @@ def _script_of(text):
     return "latin"
 
 
+def _cached_ok(src, dst):
+    """Phát hiện bản dịch hỏng: chữ gốc không phải hệ Latin (Trung/Hàn/Nga...)
+    mà 'dịch xong' vẫn y nguyên thì chắc chắn là lần dịch đó thất bại."""
+    return bool(dst) and not (_script_of(src) != "latin"
+                              and dst.strip() == src.strip())
+
+
 def load_cache():
     try:
         with open(CACHE_FILE, encoding="utf-8") as f:
-            _cache.update(json.load(f))
+            data = json.load(f)
     except Exception:
-        pass
+        return
+    # Lọc bỏ mục hỏng (di sản của phiên bản cũ) - sẽ được dịch lại tử tế
+    for key, dst in data.items():
+        src = key.split("\x1f", 1)[-1]
+        if isinstance(dst, str) and _cached_ok(src, dst):
+            _cache[key] = dst
 
 
 def save_cache():
@@ -219,17 +232,26 @@ def translate_lines(lines):
 
 def _translate_group(lines):
     """Dịch một nhóm dòng cùng hệ chữ, luôn trả list khớp từng dòng."""
+    from deep_translator import GoogleTranslator
+    translator = GoogleTranslator(source="auto", target=S("ngon_ngu_dich"))
+
     per_line, _full = translate_lines(lines)
     if per_line is None:
         # Google gộp/tách dòng -> dịch từng dòng một cho chắc
-        from deep_translator import GoogleTranslator
-        translator = GoogleTranslator(source="auto", target=S("ngon_ngu_dich"))
         per_line = []
         for ln in lines:
             try:
                 per_line.append(html.unescape(translator.translate(ln) or ln))
             except Exception:
                 per_line.append(ln)
+
+    # Dòng nào dịch thất bại (không phải Latin mà ra y nguyên) -> thử lại lẻ
+    for i, (src, dst) in enumerate(zip(lines, per_line)):
+        if not _cached_ok(src, dst):
+            try:
+                per_line[i] = html.unescape(translator.translate(src) or dst)
+            except Exception:
+                pass
     return per_line
 
 
@@ -571,24 +593,38 @@ class Bubble(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         if self.live_on:
-            color = QColor(46, 160, 90)      # xanh lá: đang dịch sống
+            base, light = QColor(30, 140, 74), QColor(110, 220, 150)
         elif self.busy:
-            color = QColor(230, 126, 34)     # cam: đang xử lý
+            base, light = QColor(206, 100, 16), QColor(255, 184, 100)
         else:
-            color = QColor(52, 120, 246)     # xanh dương: chờ
-        p.setBrush(color)
-        p.setPen(QPen(QColor(255, 255, 255, 60), 2))
-        p.drawEllipse(3, 3, self.SIZE - 6, self.SIZE - 6)
+            base, light = QColor(28, 92, 224), QColor(126, 182, 255)
+
+        s = self.SIZE
+        p.setPen(Qt.NoPen)
+
+        # Bóng đổ lệch xuống dưới
+        p.setBrush(QColor(0, 0, 0, 55))
+        p.drawEllipse(5, 7, s - 10, s - 10)
+
+        # Thân cầu: gradient sáng lệch góc trên-trái như quả bóng thật
+        grad = QRadialGradient(s * 0.35, s * 0.30, s * 0.75)
+        grad.setColorAt(0.0, light)
+        grad.setColorAt(1.0, base)
+        p.setBrush(QBrush(grad))
+        p.drawEllipse(4, 4, s - 10, s - 10)
+
+        # Vệt bóng loáng phía trên
+        p.setBrush(QColor(255, 255, 255, 65))
+        p.drawEllipse(QRectF(s * 0.24, s * 0.11, s * 0.44, s * 0.26))
 
         if self.busy:
             p.setPen(QPen(QColor(255, 255, 255), 3))
-            p.drawArc(12, 12, self.SIZE - 24, self.SIZE - 24,
-                      self.spin_angle * 16, 100 * 16)
+            p.drawArc(13, 13, s - 28, s - 28, self.spin_angle * 16, 100 * 16)
         else:
             p.setPen(QPen(QColor(255, 255, 255)))
             p.setFont(QFont("Segoe UI", 9, QFont.Bold))
             label = "ON" if self.live_on else MODE_LABELS.get(S("che_do"), "Dịch")
-            p.drawText(self.rect(), Qt.AlignCenter, label)
+            p.drawText(QRectF(4, 4, s - 10, s - 10), Qt.AlignCenter, label)
         p.end()
 
     def _spin(self):
