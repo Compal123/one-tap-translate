@@ -1,4 +1,4 @@
-# Dịch Màn Hình
+# One Tap Translate (OTT)
 
 🇬🇧 [English version here](README.md)
 
@@ -12,7 +12,8 @@ Người viết chỉ biết tiếng Việt. Chrome dịch được trang web, n
 
 ## Tính năng
 
-- **Dịch sống** — quét màn hình liên tục, bản dịch đè tại chỗ, chuột **bấm xuyên qua** lớp dịch nên bạn dùng app bên dưới bình thường. Chờ màn hình đứng yên mới dịch (không tốn công dịch cảnh đang cuộn).
+- **Dịch live** — quét màn hình liên tục, bản dịch đè tại chỗ, chuột **bấm xuyên qua** lớp dịch nên bạn dùng app bên dưới bình thường. Chờ màn hình đứng yên mới dịch (không tốn công dịch cảnh đang cuộn).
+- **Màn hình nhiều ngôn ngữ** — các dòng được gom theo hệ chữ (Latin / Hán / Hàn / Nga...) trước khi dịch, nên tiếng Anh lẫn tiếng Trung cùng màn hình đều dịch đúng.
 - **Dịch một lần** — nhấn bong bóng, xem ảnh chụp đã dịch, nhấn để đóng.
 - **Dịch vùng chọn** — kéo khoanh một vùng, chỉ dịch vùng đó.
 - **Bộ nhớ dịch** — mọi câu đã dịch được lưu xuống đĩa (`bo-nho-dich.json`). Chữ từng gặp hiện tức thì, không cần mạng, vĩnh viễn. Dùng càng lâu càng nhanh.
@@ -24,8 +25,8 @@ Người viết chỉ biết tiếng Việt. Chrome dịch được trang web, n
 Yêu cầu Windows 10/11 và Python 3.10+.
 
 ```
-git clone https://github.com/Compal123/dich-man-hinh.git
-cd dich-man-hinh
+git clone https://github.com/Compal123/one-tap-translate.git
+cd one-tap-translate
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```

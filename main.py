@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Dịch Màn Hình - bong bóng nổi dịch màn hình sang tiếng Việt.
+One Tap Translate (OTT) - bong bóng nổi dịch màn hình.
 
 Ba chế độ (chuột phải bong bóng để chọn, app nhớ lựa chọn):
-- Dịch sống:     quét màn hình liên tục, bản dịch đè lên chữ gốc,
+- Dịch live:     quét màn hình liên tục, bản dịch đè lên chữ gốc,
                  chuột bấm xuyên qua, dùng app bên dưới bình thường.
 - Dịch một lần:  nhấn bong bóng -> chụp - dịch - hiện kết quả.
 - Dịch vùng chọn: nhấn bong bóng -> kéo khoanh vùng -> chỉ dịch vùng đó.
@@ -126,8 +126,33 @@ _cache_lock = threading.Lock()
 
 
 def _ck(src):
-    """Khóa cache gồm cả ngôn ngữ đích - đổi ngôn ngữ không lẫn bản dịch cũ."""
-    return S("ngon_ngu_dich") + "\x1f" + src
+    """Khóa bộ nhớ dịch: gồm ngôn ngữ đích + chữ gốc đã chuẩn hóa.
+
+    Chuẩn hóa hoa/thường và khoảng trắng để "Operation", "operation ",
+    "OPERATION" đều dùng chung một bản dịch - thuật ngữ nhất quán hơn.
+    """
+    return S("ngon_ngu_dich") + "\x1f" + " ".join(src.lower().split())
+
+
+def _script_of(text):
+    """Đoán hệ chữ của dòng: latin / cjk (Trung) / jp / kr / ru / th.
+
+    Dùng để gom dòng cùng hệ chữ dịch chung một chuyến - màn hình có cả
+    tiếng Anh lẫn tiếng Trung thì mỗi thứ đi một đường, Google không đoán nhầm.
+    """
+    for ch in text:
+        o = ord(ch)
+        if 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF:
+            return "cjk"
+        if 0x3040 <= o <= 0x30FF:
+            return "jp"
+        if 0xAC00 <= o <= 0xD7AF:
+            return "kr"
+        if 0x0400 <= o <= 0x04FF:
+            return "ru"
+        if 0x0E00 <= o <= 0x0E7F:
+            return "th"
+    return "latin"
 
 
 def load_cache():
@@ -192,24 +217,41 @@ def translate_lines(lines):
             "\n".join(full_parts))
 
 
+def _translate_group(lines):
+    """Dịch một nhóm dòng cùng hệ chữ, luôn trả list khớp từng dòng."""
+    per_line, _full = translate_lines(lines)
+    if per_line is None:
+        # Google gộp/tách dòng -> dịch từng dòng một cho chắc
+        from deep_translator import GoogleTranslator
+        translator = GoogleTranslator(source="auto", target=S("ngon_ngu_dich"))
+        per_line = []
+        for ln in lines:
+            try:
+                per_line.append(html.unescape(translator.translate(ln) or ln))
+            except Exception:
+                per_line.append(ln)
+    return per_line
+
+
 def translate_cached(lines):
-    """Dịch qua bộ nhớ: chỉ gọi mạng cho dòng chưa gặp, luôn khớp từng dòng."""
-    missing = [ln for ln in dict.fromkeys(lines) if _ck(ln) not in _cache]
-    if missing:
-        per_line, _full = translate_lines(missing)
-        if per_line is None:
-            # Google gộp/tách dòng -> dịch từng dòng một cho chắc
-            from deep_translator import GoogleTranslator
-            translator = GoogleTranslator(source="auto",
-                                          target=S("ngon_ngu_dich"))
-            per_line = []
-            for ln in missing:
-                try:
-                    per_line.append(html.unescape(translator.translate(ln) or ln))
-                except Exception:
-                    per_line.append(ln)
-        for src, dst in zip(missing, per_line):
+    """Dịch qua bộ nhớ: chỉ gọi mạng cho dòng chưa gặp.
+
+    Dòng mới được gom theo hệ chữ (Anh đi với Anh, Trung đi với Trung...)
+    để mỗi nhóm được Google nhận diện ngôn ngữ chính xác.
+    """
+    missing = {}   # hệ chữ -> list dòng chưa có trong bộ nhớ (không trùng)
+    seen = set()
+    for ln in lines:
+        key = _ck(ln)
+        if key not in _cache and key not in seen:
+            seen.add(key)
+            missing.setdefault(_script_of(ln), []).append(ln)
+    changed = False
+    for group in missing.values():
+        for src, dst in zip(group, _translate_group(group)):
             _cache[_ck(src)] = dst
+            changed = True
+    if changed:
         save_cache()
     return [_cache.get(_ck(ln), ln) for ln in lines]
 
@@ -432,7 +474,7 @@ class SettingsDialog(QDialog):
     def __init__(self, on_saved):
         super().__init__()
         self.on_saved = on_saved
-        self.setWindowTitle("Cài đặt - Dịch Màn Hình")
+        self.setWindowTitle("Cài đặt - One Tap Translate")
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         form = QFormLayout(self)
@@ -480,7 +522,7 @@ class SettingsDialog(QDialog):
         self.accept()
 
 
-MODE_LABELS = {"song": "Dịch", "mot_lan": "1 lần", "vung": "Vùng"}
+MODE_LABELS = {"song": "Live", "mot_lan": "1 lần", "vung": "Vùng"}
 
 
 class Bubble(QWidget):
@@ -569,7 +611,7 @@ class Bubble(QWidget):
             self._dragged = False
         elif event.button() == Qt.RightButton:
             menu = QMenu(self)
-            for key, label in (("song", "Chế độ: Dịch sống"),
+            for key, label in (("song", "Chế độ: Dịch live"),
                                ("mot_lan", "Chế độ: Dịch một lần"),
                                ("vung", "Chế độ: Dịch vùng chọn")):
                 action = menu.addAction(label)

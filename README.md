@@ -1,4 +1,4 @@
-# Screen Translator (Dịch Màn Hình)
+# One Tap Translate (OTT)
 
 🇻🇳 [Bản tiếng Việt ở đây](README.vi.md)
 
@@ -16,6 +16,7 @@ Built by a Vietnamese speaker who reads no other language. Chrome translates web
 - **Single shot** — click the bubble, get a translated snapshot, click to dismiss.
 - **Region select** — drag a rectangle, translate only that area.
 - **Translation memory** — every translated line is cached to disk (`bo-nho-dich.json`). Previously seen text appears instantly, offline, forever. The longer you use it, the faster it gets.
+- **Mixed-language screens** — lines are grouped by writing system (Latin / CJK / Korean / Cyrillic...) before translation, so English and Chinese on the same screen both translate correctly.
 - **Settings window** — right-click the bubble → Settings: target language, scan interval, sensitivity. Applies immediately.
 - OCR runs **locally** (RapidOCR/ONNX — no Windows OCR language packs needed); translation uses Google Translate (free web endpoint).
 
@@ -24,8 +25,8 @@ Built by a Vietnamese speaker who reads no other language. Chrome translates web
 Requires Windows 10/11 and Python 3.10+.
 
 ```
-git clone https://github.com/Compal123/dich-man-hinh.git
-cd dich-man-hinh
+git clone https://github.com/Compal123/one-tap-translate.git
+cd one-tap-translate
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
