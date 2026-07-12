@@ -8,7 +8,8 @@ import cv2
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-from main import ocr_image, translate_lines
+from ocr import ocr_image
+from translate import translate_lines
 
 # Tạo ảnh trắng có chữ tiếng Anh
 img = np.full((200, 900, 3), 255, dtype=np.uint8)

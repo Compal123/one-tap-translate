@@ -4,3 +4,7 @@ __pycache__/
 bo-nho-dich.json
 bo-nho-dich.json.tmp
 cai-dat.json
+build/
+dist/
+test.png
+smoke-ket-qua.txt

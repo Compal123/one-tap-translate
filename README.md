@@ -13,7 +13,11 @@ A floating bubble for Windows that translates text on your screen — games, app
 - **Settings window** — right-click the bubble: target language (Vietnamese, English, Chinese, Japanese, Korean, Russian), scan interval, sensitivity. Saving applies immediately.
 - OCR runs locally on your machine (RapidOCR/ONNX); translation uses Google Translate.
 
-## Install
+## Download (no Python needed)
+
+Grab `OneTapTranslate-win64.zip` from the [latest release](https://github.com/Compal123/one-tap-translate/releases/latest), unzip anywhere, and run `OneTapTranslate.exe`. Windows 10/11, 64-bit.
+
+## Install from source
 
 Requires Windows 10/11 and Python 3.10+.
 
