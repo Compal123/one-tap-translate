@@ -66,8 +66,23 @@ def exclude_from_capture(widget):
         return False
 
 
+_sct = None   # giữ lại một phiên mss dùng chung (tạo mới mỗi lần chụp rất tốn:
+              # ~40ms; tái dùng còn ~5-10ms - đủ cho vòng bám tốc độ cao)
+
+
 def grab_screen():
-    """Chụp màn hình chính, trả về ảnh BGR."""
-    with mss() as sct:
-        shot = sct.grab(sct.monitors[1])
-        return np.array(shot)[:, :, :3].copy()
+    """Chụp màn hình chính, trả về ảnh BGR. Chỉ gọi từ luồng giao diện."""
+    global _sct
+    try:
+        if _sct is None:
+            _sct = mss()
+        shot = _sct.grab(_sct.monitors[1])
+    except Exception:
+        # Phiên cũ hỏng (đổi độ phân giải/khóa máy...) -> dựng lại một lần
+        try:
+            _sct = mss()
+            shot = _sct.grab(_sct.monitors[1])
+        except Exception:
+            _sct = None
+            raise
+    return np.asarray(shot)[:, :, :3].copy()

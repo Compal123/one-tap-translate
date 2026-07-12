@@ -57,6 +57,7 @@ def _bo_dau(low):
     return unicodedata.normalize("NFD", low.replace("đ", "d")) \
         .encode("ascii", "ignore").decode()
 
+
 # Tiếng Việt là ngôn ngữ đơn âm tiết cấu trúc chặt: mỗi từ = phụ âm đầu
 # + vần + phụ âm cuối, đều thuộc bộ cố định. OCR hay đánh rơi dấu
 # ("Nước" -> "Nuoc") khiến kiểm tra dấu ở trên trượt, app đem tiếng Việt
@@ -68,8 +69,7 @@ _VN_AM_TIET = re.compile(
     r"|[aeiouy])"
     r"(ch|ng|nh|[cmnpt])?$")
 
-# Nhiều từ tiếng Anh ngắn cũng vô tình khớp âm tiết Việt ("in the can"),
-# nên chỉ kết luận là tiếng Việt khi có ít nhất một từ mang đặc trưng Việt:
+# Chỉ kết luận là tiếng Việt khi có ít nhất một từ mang đặc trưng Việt:
 # bắt đầu ng/kh/nh, chứa "uo", kết thúc "nh", hoặc vần "iê" mất dấu.
 _VN_DAC_TRUNG = re.compile(r"^(ng|kh|nh)|uo|nh$|ie(c|m|n|ng|p|t|u)$")
 _VN_TU_QUEN = {  # từ mất dấu hay gặp trên màn hình mà mẫu trên chưa bắt được

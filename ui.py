@@ -2,6 +2,7 @@
 """Giao diện: bong bóng nổi, các lớp overlay và cửa sổ cài đặt."""
 
 import threading
+import time
 
 import cv2
 import numpy as np
@@ -14,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                                QPushButton, QSpinBox, QTabWidget, QTextEdit,
                                QVBoxLayout, QWidget)
 
-from layout import draw_items
+from layout import capture_templates, draw_items, track_frame
 from settings import (APP_NAME, APP_VERSION, GITHUB_URL, L, S, SETTINGS,
                       save_settings)
 from translate import (GEMINI_KEY_PAGE, GROQ_KEY_PAGE, translate_gemini,
@@ -407,14 +408,19 @@ class Bubble(QWidget):
         self.live_on = False
         self.busy = False
         self.capture_safe = False   # Windows có hỗ trợ loại overlay khỏi ảnh chụp
-        self.prev_small = None      # ảnh thu nhỏ của lần quét trước
+        self.prev_small = None      # ảnh thu nhỏ của lần quét trước (dò động)
+        self.track_prev_half = None  # khung xám nửa trước đó (ước lượng thô)
         self.screen_dirty = True    # màn hình có nội dung mới chưa dịch
+        self.need_templates = False  # cần chụp lại ảnh mẫu bám sau khi dịch xong
+        self.last_motion = 0.0      # lúc thấy màn hình động gần nhất (giây)
         self.spin_angle = 0
 
         self.spin_timer = QTimer(self)
         self.spin_timer.timeout.connect(self._spin)
-        self.live_timer = QTimer(self)
+        self.live_timer = QTimer(self)   # vòng chậm: dò đứng yên -> quét dịch
         self.live_timer.timeout.connect(self.live_tick)
+        self.track_timer = QTimer(self)  # vòng nhanh: bám ô chữ theo màn hình
+        self.track_timer.timeout.connect(self.track_tick)
 
         self.signals = WorkerSignals()
         self.signals.done.connect(self.on_done)
@@ -550,19 +556,26 @@ class Bubble(QWidget):
     def start_live(self):
         self.live_on = True
         self.prev_small = None
+        self.track_prev_half = None
         self.screen_dirty = True
+        self.need_templates = False
         if self.live_overlay is None:
             self.live_overlay = LiveOverlay()
         self.live_overlay.show()
         self.capture_safe = exclude_from_capture(self.live_overlay)
         exclude_from_capture(self)
-        self.live_timer.start(int(S("chu_ky_quet_ms")))
+        # Vòng chậm quyết định khi nào quét dịch. Nếu Windows loại được overlay
+        # khỏi ảnh chụp thì bật thêm vòng bám nhanh (chụp liên tục không chớp).
+        self.live_timer.start(max(120, int(S("chu_ky_quet_ms")) // 3))
+        if self.capture_safe:
+            self.track_timer.start(30)   # ~24-30fps, đủ để chữ dính như keo
         self.update()
         self.live_tick()
 
     def stop_live(self):
         self.live_on = False
         self.live_timer.stop()
+        self.track_timer.stop()
         if self.live_overlay is not None:
             self.live_overlay.set_items([])
             self.live_overlay.hide()
@@ -583,32 +596,75 @@ class Bubble(QWidget):
             for w in hidden:
                 w.show()
 
-    def live_tick(self):
-        if self.busy or not self.live_on:
-            return
-        img = self._grab_for_ocr()
+    def track_tick(self):
+        """Vòng nhanh (~24-30fps): giữ mỗi ô dịch dính lấy khối chữ gốc.
 
-        small = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (160, 90))
-        if self.prev_small is None:
-            self.prev_small = small
+        Chụp màn hình liên tục (overlay đã được loại khỏi ảnh chụp nên không
+        chớp), dò lại ảnh mẫu của từng ô để bám theo lúc cuộn/kéo cửa sổ, và
+        ghi nhận lúc màn hình động để vòng quét biết khi nào đứng yên.
+        """
+        if not self.live_on or not self.capture_safe:
             return
-        moving = (float(np.mean(cv2.absdiff(small, self.prev_small)))
-                  >= float(S("nguong_thay_doi")))
+        try:
+            gray = cv2.cvtColor(grab_screen(), cv2.COLOR_BGR2GRAY)
+        except Exception:
+            return
+        small = cv2.resize(gray, (160, 90))
+        half = cv2.resize(gray, None, fx=0.5, fy=0.5)
+        prev_half = self.track_prev_half
+        self.track_prev_half = half
+        if self.prev_small is not None:
+            dong = (float(np.mean(cv2.absdiff(small, self.prev_small)))
+                    >= float(S("nguong_thay_doi")))
+            if dong:
+                self.last_motion = time.monotonic()
+                self.screen_dirty = True   # đứng yên lại sẽ quét bù vùng mới
         self.prev_small = small
 
-        if moving:
-            # Đang cuộn/chuyển màn hình: xóa bản dịch cũ và CHƯA quét vội.
-            # Chờ màn hình đứng yên mới dịch - khỏi tốn công dịch cảnh lướt qua.
-            if self.live_overlay is not None:
-                self.live_overlay.set_items([])
-            self.screen_dirty = True
+        ov = self.live_overlay
+        if ov is None or not ov.items:
             return
+        if self.need_templates:
+            # Vừa dịch xong: chụp ảnh mẫu vùng gốc từng ô ngay khi còn khớp
+            capture_templates(ov.items, half, 0.5)
+            self.need_templates = False
+            return
+        if ov.items and ov.items[0].get("_tmpl") is not None:
+            song, bam = track_frame(ov.items, half, prev_half, 0.5)
+            ov.items = song
+            ov.update()
+            # Không còn ô nào bám được khi đang động = nội dung đổi hẳn
+            # (chuyển tab/app): bỏ bản dịch cũ cho khỏi trơ lại lệch chỗ
+            if song and bam == 0 and time.monotonic() - self.last_motion < 0.2:
+                ov.set_items([])
+
+    def live_tick(self):
+        """Vòng chậm: khi màn hình đã đứng yên một nhịp và còn nội dung mới
+        chưa dịch thì chụp và chạy OCR + dịch (đặt lại ảnh mẫu để bám)."""
+        if self.busy or not self.live_on:
+            return
+        if not self.capture_safe:
+            # Không loại được overlay khỏi ảnh chụp -> không bám nhanh được,
+            # tự dò động ngay tại đây (chụp có ẩn overlay nên chậm hơn)
+            img = self._grab_for_ocr()
+            small = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (160, 90))
+            if self.prev_small is not None and (
+                    float(np.mean(cv2.absdiff(small, self.prev_small)))
+                    >= float(S("nguong_thay_doi"))):
+                self.last_motion = time.monotonic()
+                self.screen_dirty = True
+                if self.live_overlay is not None:
+                    self.live_overlay.set_items([])
+            self.prev_small = small
 
         if not self.screen_dirty:
-            return  # màn hình đứng yên và đã dịch xong rồi
-
+            return
+        # Chờ màn hình đứng yên đủ lâu mới quét (khỏi dịch cảnh đang lướt)
+        if time.monotonic() - self.last_motion < 0.35:
+            return
         self.screen_dirty = False
         self._set_busy(True)
+        img = self._grab_for_ocr()
         threading.Thread(target=run_job, args=(img, self.signals, "song"),
                          daemon=True).start()
 
@@ -656,11 +712,14 @@ class Bubble(QWidget):
             # Pha 1 (bộ nhớ) ở chế độ sống: cập nhật overlay, vẫn xử lý tiếp
             if self.live_on and self.live_overlay is not None:
                 self.live_overlay.set_items(items)
+                self.need_templates = True
             return
         self._set_busy(False)
         if payload.get("live"):
             if self.live_on and self.live_overlay is not None:
                 self.live_overlay.set_items(items)
+                # Bảo vòng bám chụp lại ảnh mẫu vùng gốc từng ô (đang khớp)
+                self.need_templates = True
             if payload.get("degraded"):
                 # Dịch lỗi (thường do mạng): giữ chế độ sống, đánh dấu để
                 # vòng quét sau thử lại thay vì tắt live và bung lỗi
