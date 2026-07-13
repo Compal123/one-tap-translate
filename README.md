@@ -11,7 +11,7 @@ A floating bubble for Windows that translates text on your screen — games, app
 - **Region select** — drag a rectangle, translate only that area.
 - **Mixed-language screens** — lines are grouped by writing system (Latin / Chinese / Japanese / Korean / Cyrillic...) and each group is translated with its source language set explicitly, so multiple languages on one screen all translate correctly — including traditional Chinese.
 - **Settings window** — right-click the bubble: target language (Vietnamese, English, Chinese, Japanese, Korean, Russian), scan interval, sensitivity, **translation background & text color**. Saving applies immediately.
-- **Global hotkeys** — `Ctrl + Alt + M` switches mode, `Ctrl + Alt + T` runs the current mode (instead of clicking the bubble). Works even while another game/app is focused. Toggle in Settings.
+- **Global hotkeys** — by default `Ctrl + Alt + M` switches mode, `Ctrl + Alt + T` runs the current mode (instead of clicking the bubble). Works even while another game/app is focused. **Rebind them freely** or toggle in Settings.
 - OCR runs locally on your machine with **PP-OCRv5** (PaddleOCR's detect+recognize pipeline, GPU-accelerated, light & fast); translation uses Google Translate (or Gemini/Groq with a key).
 
 ## Download & quick setup

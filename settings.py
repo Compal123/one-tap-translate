@@ -34,6 +34,8 @@ _DEFAULT_SETTINGS = {
     "mau_nen": "#181A26",      # màu nền ô bản dịch (đè lên chữ gốc)
     "mau_chu": "#F0F2FA",      # màu chữ bản dịch
     "phim_tat_bat": True,      # bật phím tắt toàn cục (đổi chế độ / chạy)
+    "phim_doi_che_do": "Ctrl+Alt+M",  # phím tắt đổi chế độ (tùy chỉnh được)
+    "phim_chay": "Ctrl+Alt+T",        # phím tắt chạy - thay cho nhấn bong bóng
 }
 
 SETTINGS = dict(_DEFAULT_SETTINGS)
@@ -108,8 +110,12 @@ _UI_TEXT = {
     "st_fg_color": {"vi": "Màu chữ bản dịch:", "en": "Translation text:"},
     "btn_pick_color": {"vi": "Chọn màu...", "en": "Pick color..."},
     "st_hotkeys":  {"vi": "Bật phím tắt toàn cục", "en": "Enable global hotkeys"},
-    "hotkey_hint": {"vi": "Ctrl + Alt + M: đổi chế độ    •    Ctrl + Alt + T: chạy (thay cho nhấn bong bóng)",
-                    "en": "Ctrl + Alt + M: switch mode    •    Ctrl + Alt + T: run (instead of clicking the bubble)"},
+    "st_hk_mode":  {"vi": "Phím đổi chế độ:", "en": "Switch-mode key:"},
+    "st_hk_run":   {"vi": "Phím chạy (thay click):", "en": "Run key (like click):"},
+    "hotkey_hint": {"vi": "Bấm vào ô rồi gõ tổ hợp phím mong muốn (nên có Ctrl/Alt/Shift). "
+                          "Để trống một ô = tắt phím đó. Nếu phím không ăn thì đã bị app khác chiếm.",
+                    "en": "Click a field and press your desired combo (include Ctrl/Alt/Shift). "
+                          "Leave a field empty to disable that hotkey. If it doesn't work, another app took it."},
     "btn_save":   {"vi": "Lưu", "en": "Save"},
     "btn_cancel": {"vi": "Hủy", "en": "Cancel"},
     "about_desc": {"vi": "Bong bóng nổi dịch chữ trên màn hình - bản dịch "

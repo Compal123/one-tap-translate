@@ -11,7 +11,7 @@ Bong bóng nổi trên Windows dịch chữ trên màn hình — game, app, tài
 - **Dịch vùng chọn** — kéo khoanh một vùng, chỉ dịch vùng đó.
 - **Màn hình nhiều ngôn ngữ** — các dòng được gom theo hệ chữ (Latin / Hán / Nhật / Hàn / Nga...) và mỗi nhóm được chỉ định thẳng ngôn ngữ nguồn khi dịch, nên nhiều ngôn ngữ trên cùng màn hình đều dịch đúng — kể cả tiếng Trung phồn thể.
 - **Cửa sổ cài đặt** — chuột phải bong bóng: ngôn ngữ đích (Việt, Anh, Trung, Nhật, Hàn, Nga), chu kỳ quét, độ nhạy, **màu nền & màu chữ bản dịch**. Lưu là áp dụng ngay.
-- **Phím tắt toàn cục** — `Ctrl + Alt + M` đổi chế độ, `Ctrl + Alt + T` chạy chế độ đang chọn (thay cho nhấn bong bóng). Dùng được cả khi đang trong game/app khác. Bật/tắt trong Cài đặt.
+- **Phím tắt toàn cục** — mặc định `Ctrl + Alt + M` đổi chế độ, `Ctrl + Alt + T` chạy chế độ đang chọn (thay cho nhấn bong bóng). Dùng được cả khi đang trong game/app khác. **Đổi phím tùy ý** hoặc bật/tắt trong Cài đặt.
 - OCR chạy trên máy của bạn bằng **PP-OCRv5** (bộ detect+recognize của PaddleOCR, chạy trên GPU, nhẹ & nhanh); dịch bằng Google Translate (hoặc Gemini/Groq nếu nhập key).
 
 ## Tải về & cài nhanh

@@ -11,30 +11,81 @@ import numpy as np
 from PySide6.QtCore import (QAbstractNativeEventFilter, QRect, QRectF, Qt,
                             QTimer, QUrl, Signal)
 from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont,
-                           QFontMetrics, QPainter, QPen, QRadialGradient)
+                           QFontMetrics, QKeySequence, QPainter, QPen,
+                           QRadialGradient)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
                                QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QMenu, QPushButton, QSpinBox, QTabWidget,
-                               QTextEdit, QVBoxLayout, QWidget)
+                               QFormLayout, QHBoxLayout, QKeySequenceEdit,
+                               QLabel, QLineEdit, QMenu, QPushButton, QSpinBox,
+                               QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from layout import capture_templates, draw_items, track_frame
 from settings import (APP_NAME, APP_VERSION, GITHUB_URL, L, S, SETTINGS,
                       save_settings)
 from translate import (GEMINI_KEY_PAGE, GROQ_KEY_PAGE, translate_gemini,
                        translate_groq)
-from winutil import (MOD_ALT, MOD_CONTROL, autostart_enabled,
-                     exclude_from_capture, grab_screen, keep_topmost,
-                     register_hotkey, set_autostart, unregister_hotkey)
+from winutil import (MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
+                     autostart_enabled, exclude_from_capture, grab_screen,
+                     keep_topmost, register_hotkey, set_autostart,
+                     unregister_hotkey)
 from worker import WorkerSignals, run_job
 
-# Phím tắt toàn cục: Ctrl+Alt+M đổi chế độ, Ctrl+Alt+T chạy (thay cho click).
-# (Ctrl+Alt+Space hay bị bộ gõ tiếng Việt/hệ thống chiếm nên không dùng.)
+# Phím tắt toàn cục tùy chỉnh được (lưu ở cài đặt dạng "Ctrl+Alt+M").
 _HK_MODE = 1
 _HK_RUN = 2
-_HOTKEYS = {_HK_MODE: (MOD_CONTROL | MOD_ALT, 0x4D),   # 'M'
-            _HK_RUN:  (MOD_CONTROL | MOD_ALT, 0x54)}   # 'T'
 _WM_HOTKEY = 0x0312
+
+
+def _qt_key_to_vk(key):
+    """Chuyển Qt.Key -> mã virtual-key của Windows. None nếu không hỗ trợ."""
+    k = int(key)
+    if int(Qt.Key_A) <= k <= int(Qt.Key_Z):    # 'A'..'Z' trùng VK 0x41..0x5A
+        return k
+    if int(Qt.Key_0) <= k <= int(Qt.Key_9):    # '0'..'9' trùng VK 0x30..0x39
+        return k
+    if int(Qt.Key_F1) <= k <= int(Qt.Key_F24):
+        return 0x70 + (k - int(Qt.Key_F1))     # VK_F1 = 0x70
+    special = {
+        Qt.Key_Space: 0x20, Qt.Key_Return: 0x0D, Qt.Key_Enter: 0x0D,
+        Qt.Key_Tab: 0x09, Qt.Key_Backspace: 0x08, Qt.Key_Escape: 0x1B,
+        Qt.Key_Left: 0x25, Qt.Key_Up: 0x26, Qt.Key_Right: 0x27,
+        Qt.Key_Down: 0x28, Qt.Key_Insert: 0x2D, Qt.Key_Delete: 0x2E,
+        Qt.Key_Home: 0x24, Qt.Key_End: 0x23, Qt.Key_PageUp: 0x21,
+        Qt.Key_PageDown: 0x22, Qt.Key_QuoteLeft: 0xC0,
+    }
+    return special.get(Qt.Key(k))
+
+
+def _seq_to_hotkey(seq_str):
+    """'Ctrl+Alt+M' -> (mods, vk) cho RegisterHotKey. None nếu trống/không hợp lệ.
+
+    Đòi ít nhất một phím bổ trợ (Ctrl/Alt/Shift/Win) - phím tắt toàn cục không
+    nên là phím trần kẻo nuốt mất phím gõ bình thường.
+    """
+    ks = QKeySequence(seq_str or "")
+    if ks.isEmpty():
+        return None
+    combo = ks[0]
+    try:                                       # PySide6 mới: QKeyCombination
+        key = combo.key()
+        mods = combo.keyboardModifiers()
+    except AttributeError:                      # bản cũ trả int
+        val = int(combo)
+        key = Qt.Key(val & ~int(Qt.KeyboardModifierMask))
+        mods = Qt.KeyboardModifiers(val & int(Qt.KeyboardModifierMask))
+    winmods = 0
+    if mods & Qt.ControlModifier:
+        winmods |= MOD_CONTROL
+    if mods & Qt.AltModifier:
+        winmods |= MOD_ALT
+    if mods & Qt.ShiftModifier:
+        winmods |= MOD_SHIFT
+    if mods & Qt.MetaModifier:
+        winmods |= MOD_WIN
+    vk = _qt_key_to_vk(key)
+    if vk is None or winmods == 0:
+        return None
+    return (winmods, vk)
 
 
 def _color(hex_str, fallback, alpha=None):
@@ -355,6 +406,15 @@ class SettingsDialog(QDialog):
         self.hotkeys = QCheckBox(L("st_hotkeys"))
         self.hotkeys.setChecked(bool(S("phim_tat_bat")))
         form.addRow("", self.hotkeys)
+
+        self.hk_mode = QKeySequenceEdit(QKeySequence(str(S("phim_doi_che_do"))))
+        self.hk_mode.setMaximumSequenceLength(1)
+        form.addRow(L("st_hk_mode"), self.hk_mode)
+
+        self.hk_run = QKeySequenceEdit(QKeySequence(str(S("phim_chay"))))
+        self.hk_run.setMaximumSequenceLength(1)
+        form.addRow(L("st_hk_run"), self.hk_run)
+
         hint = QLabel(L("hotkey_hint"))
         hint.setWordWrap(True)
         form.addRow("", hint)
@@ -507,6 +567,8 @@ class SettingsDialog(QDialog):
         SETTINGS["mau_nen"] = self._bg_hex
         SETTINGS["mau_chu"] = self._fg_hex
         SETTINGS["phim_tat_bat"] = self.hotkeys.isChecked()
+        SETTINGS["phim_doi_che_do"] = self.hk_mode.keySequence().toString()
+        SETTINGS["phim_chay"] = self.hk_run.keySequence().toString()
         set_autostart(self.autostart.isChecked())
         save_settings()
         self.on_saved()
@@ -667,10 +729,14 @@ class Bubble(QWidget):
     def _apply_hotkeys(self):
         """Đăng ký lại phím tắt theo cài đặt (gọi khi mở app + khi lưu cài đặt)."""
         hwnd = int(self.winId())
-        for hk_id, (mods, vk) in _HOTKEYS.items():
+        specs = {_HK_MODE: str(S("phim_doi_che_do")),
+                 _HK_RUN: str(S("phim_chay"))}
+        for hk_id, seq_str in specs.items():
             unregister_hotkey(hwnd, hk_id)
             if S("phim_tat_bat"):
-                register_hotkey(hwnd, hk_id, mods, vk)
+                hk = _seq_to_hotkey(seq_str)
+                if hk:
+                    register_hotkey(hwnd, hk_id, hk[0], hk[1])
 
     def cycle_mode(self):
         """Đổi sang chế độ kế tiếp (phím tắt Ctrl+Alt+M)."""
