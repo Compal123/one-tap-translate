@@ -8,3 +8,7 @@ build/
 dist/
 test.png
 smoke-ket-qua.txt
+
+*.zip
+build_log.txt
+release-notes-*.md
