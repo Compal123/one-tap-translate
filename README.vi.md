@@ -14,9 +14,16 @@ Bong bóng nổi trên Windows dịch chữ trên màn hình — game, app, tài
 - **Phím tắt toàn cục** — `Ctrl + Alt + M` đổi chế độ, `Ctrl + Alt + T` chạy chế độ đang chọn (thay cho nhấn bong bóng). Dùng được cả khi đang trong game/app khác. Bật/tắt trong Cài đặt.
 - OCR chạy trên máy của bạn bằng **PP-OCRv5** (bộ detect+recognize của PaddleOCR, chạy trên GPU, nhẹ & nhanh); dịch bằng Google Translate (hoặc Gemini/Groq nếu nhập key).
 
-## Tải về (không cần cài Python)
+## Tải về & cài nhanh
 
-Tải `OneTapTranslate-win64.zip` ở [bản phát hành mới nhất](https://github.com/Compal123/one-tap-translate/releases/latest), giải nén ra đâu cũng được, chạy `OneTapTranslate.exe`. Windows 10/11, 64-bit.
+Tải `OneTapTranslate-v1.2.0.zip` ở [bản phát hành mới nhất](https://github.com/Compal123/one-tap-translate/releases/latest), giải nén ra đâu cũng được, rồi:
+
+1. Nhấp đúp **`setup.bat`** — tự cài thư viện cần thiết (sẽ hỏi bạn có GPU NVIDIA không).
+2. Nhấp đúp **`run.bat`** để mở app. Lần chạy đầu tự tải model PP-OCRv5 (~22MB).
+
+Yêu cầu: Windows 10/11 64-bit + **Python 3.12** (`setup.bat` sẽ nhắc nếu máy chưa có). Có GPU NVIDIA thì OCR nhanh hơn nhiều — không có vẫn chạy được bằng CPU.
+
+> Gói tải về nhẹ (chỉ mã nguồn) — thư viện nặng (PaddlePaddle) và model được tải khi cài/chạy lần đầu, nên không kèm sẵn trong file zip.
 
 ## Cài đặt từ mã nguồn
 

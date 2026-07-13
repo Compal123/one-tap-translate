@@ -14,9 +14,16 @@ A floating bubble for Windows that translates text on your screen — games, app
 - **Global hotkeys** — `Ctrl + Alt + M` switches mode, `Ctrl + Alt + T` runs the current mode (instead of clicking the bubble). Works even while another game/app is focused. Toggle in Settings.
 - OCR runs locally on your machine with **PP-OCRv5** (PaddleOCR's detect+recognize pipeline, GPU-accelerated, light & fast); translation uses Google Translate (or Gemini/Groq with a key).
 
-## Download (no Python needed)
+## Download & quick setup
 
-Grab `OneTapTranslate-win64.zip` from the [latest release](https://github.com/Compal123/one-tap-translate/releases/latest), unzip anywhere, and run `OneTapTranslate.exe`. Windows 10/11, 64-bit.
+Grab `OneTapTranslate-v1.2.0.zip` from the [latest release](https://github.com/Compal123/one-tap-translate/releases/latest), unzip anywhere, then:
+
+1. Double-click **`setup.bat`** — installs the required libraries (asks whether you have an NVIDIA GPU).
+2. Double-click **`run.bat`** to launch. First run auto-downloads the PP-OCRv5 models (~22MB).
+
+Requirements: Windows 10/11 64-bit + **Python 3.12** (`setup.bat` will tell you if it's missing). An NVIDIA GPU makes OCR much faster, but CPU works too.
+
+> The download is small (source only) — the heavy library (PaddlePaddle) and the models are fetched during setup / first run, so they aren't bundled in the zip.
 
 ## Install from source
 
