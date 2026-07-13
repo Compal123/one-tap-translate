@@ -21,6 +21,7 @@ _DEFAULT_SETTINGS = {
     "ngon_ngu_dich": "vi",     # dịch sang ngôn ngữ nào
     "ngon_ngu_giao_dien": "vi",  # ngôn ngữ chữ trên giao diện app: vi | en
     "do_tin_cay_ocr": 0.50,    # bỏ qua dòng PP-OCRv5 nhận kém tin cậy hơn mức này (lọc rác/icon)
+    "so_luong_cpu_ocr": 0,     # số luồng CPU cho OCR; 0 = tự động theo số nhân máy (đỡ nóng CPU)
     "chu_ky_quet_ms": 500,     # bao lâu quét màn hình một lần (mili giây)
     "nguong_thay_doi": 1.5,    # màn hình đổi hơn mức này = "đang cuộn/chuyển"
     # Engine dịch cho từng chế độ: google | gemini | groq (mặc định Groq
@@ -105,6 +106,15 @@ _UI_TEXT = {
                      "en": "Screen-change sensitivity:"},
     "st_score":     {"vi": "Độ tin cậy OCR tối thiểu:",
                      "en": "Minimum OCR confidence:"},
+    "st_cpu_threads": {"vi": "Số luồng CPU cho OCR:",
+                       "en": "CPU threads for OCR:"},
+    "cpu_auto":     {"vi": "Tự động", "en": "Auto"},
+    "cpu_hint":     {"vi": "Ít luồng = mát CPU hơn nhưng OCR chậm hơn chút. "
+                           "Tự động = chọn mức hợp lý theo số nhân máy bạn. "
+                           "Đổi xong lưu là áp dụng ngay.",
+                     "en": "Fewer threads = cooler CPU but slightly slower OCR. "
+                           "Auto = a sensible level based on your CPU cores. "
+                           "Applies right after saving."},
     "tab_display": {"vi": "Hiển thị", "en": "Display"},
     "st_bg_color": {"vi": "Màu nền bản dịch:", "en": "Translation background:"},
     "st_fg_color": {"vi": "Màu chữ bản dịch:", "en": "Translation text:"},

@@ -18,12 +18,14 @@ Bong bóng nổi trên Windows dịch chữ trên màn hình — game, app, tài
 
 Tải `OneTapTranslate-v1.2.0.zip` ở [bản phát hành mới nhất](https://github.com/Compal123/one-tap-translate/releases/latest), giải nén ra đâu cũng được, rồi:
 
-1. Nhấp đúp **`setup.bat`** — tự cài thư viện cần thiết (sẽ hỏi bạn có GPU NVIDIA không).
-2. Nhấp đúp **`run.bat`** để mở app. Lần chạy đầu tự tải model PP-OCRv5 (~22MB).
+1. Nhấp đúp **`install.bat`** — installer tự động: dò máy, **thiếu Python 3.12 thì tự cài**, tạo môi trường ảo, tự chọn bản PaddlePaddle GPU/CPU theo máy, cài thư viện, và tạo **shortcut ngoài Desktop**.
+2. Bấm shortcut **"One Tap Translate"** ngoài Desktop để mở app. Lần chạy đầu tự tải model PP-OCRv5 (~22MB).
 
-Yêu cầu: Windows 10/11 64-bit + **Python 3.12** (`setup.bat` sẽ nhắc nếu máy chưa có). Có GPU NVIDIA thì OCR nhanh hơn nhiều — không có vẫn chạy được bằng CPU.
+Yêu cầu: Windows 10/11 64-bit + có mạng khi cài. Không cần cài sẵn gì — `install.bat` lo hết. Có GPU NVIDIA thì OCR nhanh hơn — không có vẫn chạy tốt bằng CPU.
 
-> Gói tải về nhẹ (chỉ mã nguồn) — thư viện nặng (PaddlePaddle) và model được tải khi cài/chạy lần đầu, nên không kèm sẵn trong file zip.
+> Gói tải về nhẹ (chỉ mã nguồn) — Python, thư viện nặng (PaddlePaddle) và model được tải khi cài/chạy lần đầu, nên cần mạng lúc cài.
+>
+> (Người rành kỹ thuật, đã có sẵn Python 3.12: có thể dùng `setup.bat` như cũ.)
 
 ## Cài đặt từ mã nguồn
 

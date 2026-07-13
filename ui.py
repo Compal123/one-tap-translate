@@ -3,6 +3,7 @@
 
 import ctypes
 import ctypes.wintypes
+import os
 import threading
 import time
 
@@ -392,6 +393,19 @@ class SettingsDialog(QDialog):
         self.score.setValue(float(S("do_tin_cay_ocr")))
         form.addRow(L("st_score"), self.score)
 
+        # Số luồng CPU cho OCR: 0 = "Tự động" (theo số nhân máy)
+        self.cpu_threads = QSpinBox()
+        self.cpu_threads.setRange(0, max(2, os.cpu_count() or 8))
+        self.cpu_threads.setSpecialValueText(L("cpu_auto"))  # hiển thị khi = 0
+        self.cpu_threads.setValue(int(S("so_luong_cpu_ocr")))
+        self.cpu_threads.setToolTip(L("cpu_hint"))
+        form.addRow(L("st_cpu_threads"), self.cpu_threads)
+
+        cpu_note = QLabel(L("cpu_hint"))
+        cpu_note.setWordWrap(True)
+        cpu_note.setStyleSheet("color: #888;")
+        form.addRow("", cpu_note)
+
         tabs.addTab(scan, L("tab_scan"))
 
         # --- Tab Hiển thị: màu bản dịch + phím tắt toàn cục ---
@@ -559,6 +573,12 @@ class SettingsDialog(QDialog):
         SETTINGS["chu_ky_quet_ms"] = self.interval.value()
         SETTINGS["nguong_thay_doi"] = round(self.threshold.value(), 2)
         SETTINGS["do_tin_cay_ocr"] = round(self.score.value(), 2)
+        # Đổi số luồng CPU -> dựng lại engine để áp dụng ngay (khỏi khởi động lại)
+        cpu_cu = int(S("so_luong_cpu_ocr"))
+        SETTINGS["so_luong_cpu_ocr"] = self.cpu_threads.value()
+        if self.cpu_threads.value() != cpu_cu:
+            import ocr
+            ocr.reset_engine()
         for mode, combo in self.engine_combos.items():
             SETTINGS["engine_" + mode] = combo.currentData()
         SETTINGS["gemini_key"] = self.gemini_key.text().strip()

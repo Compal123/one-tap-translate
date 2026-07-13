@@ -30,6 +30,27 @@ _ocr_lock = threading.Lock()      # chỉ khoá lúc dựng engine
 _predict_lock = threading.Lock()  # 1 model trên GPU: chạy predict tuần tự cho an toàn
 
 
+def cpu_threads_ocr():
+    """Số luồng CPU dùng cho OCR.
+
+    Lấy từ cài đặt 'so_luong_cpu_ocr'; 0 = tự động = ~1/4 số luồng máy
+    (kẹp trong [2, 8]). Giới hạn luồng để mỗi lần OCR không "gồng" hết CPU
+    (mặc định Paddle ăn tới 70%+); GPU thì tham số này không ảnh hưởng.
+    """
+    n = int(S("so_luong_cpu_ocr") or 0)
+    if n > 0:
+        return n
+    total = os.cpu_count() or 4
+    return max(2, min(8, round(total / 4)))
+
+
+def reset_engine():
+    """Xoá engine đã dựng để lần OCR kế tiếp dựng lại (vd sau khi đổi số luồng CPU)."""
+    global _ocr_engine
+    with _ocr_lock:
+        _ocr_engine = None
+
+
 def get_ocr():
     """Khởi tạo PP-OCRv5 (bộ detect + recognize, lần đầu tải model ~vài chục MB).
 
@@ -49,6 +70,14 @@ def get_ocr():
                 use_doc_orientation_classify=False,
                 use_doc_unwarping=False,
                 use_textline_orientation=False,
+                # Tắt oneDNN: PaddlePaddle 3.3.x chạy CPU qua oneDNN bị lỗi
+                # "ConvertPirAttribute2RuntimeAttribute not support" -> tắt đi
+                # để dùng kernel CPU thường (GPU không ảnh hưởng).
+                enable_mkldnn=False,
+                # Giới hạn số luồng CPU: mặc định Paddle gồng hết luồng ->
+                # CPU nhảy 70%+ mỗi lần OCR. Số luồng lấy từ cài đặt (0 = tự
+                # động theo số nhân máy); OCR vẫn nhanh (~0.5s/lần model mobile).
+                cpu_threads=cpu_threads_ocr(),
             )
         return _ocr_engine
 
