@@ -121,22 +121,44 @@ def _median(vals):
 
 
 def track_frame(items, gray, prev_gray=None, scale=0.5, margin=20,
-                thr=0.5, max_lost=8, tol=5):
+                thr=0.5, max_lost=8, tol=5, strong=0.8):
     """Dời mỗi ô theo khối chữ gốc của nó trong khung hình mới.
 
-    Ba tầng: (0) ước lượng THÔ cả màn hình trượt bao nhiêu (bắt cú vẩy mạnh)
-    làm mốc dự đoán cho mọi ô; (1) mỗi ô tìm lại ảnh mẫu quanh vị trí dự
-    đoán trong cửa sổ nhỏ, ghi độ dời nếu khớp tốt; (2) lấy độ dời trung vị
-    đám đông làm mốc tinh - ô lệch hẳn (bám nhầm ô trùng chữ) kéo về mốc; ô
-    không thấy thì trôi theo mốc, quá max_lost khung không thấy thì rụng.
+    Mỗi ô thử HAI giả thuyết chuyển động rồi lấy cái khớp cao hơn:
+      (a) ô đi theo chuyển động RIÊNG của nó (vận tốc cũ; ô đứng yên -> 0 ->
+          khớp ngay tại chỗ);
+      (b) ô đi theo cú trượt THÔ của cả màn (bắt cú vẩy/cuộn mạnh khung đầu).
+    Nhờ vậy một vùng cuộn độc lập (web cuộn) KHÔNG kéo được ô đứng yên (menu
+    app) đi theo. Ô khớp MẠNH (>= strong) được tin hẳn kể cả khi lệch đám
+    đông - đúng cho màn hình có nhiều vùng chuyển động khác nhau. Ô khớp yếu
+    lệch mốc trung vị thì kéo về mốc (chống bám nhầm ô trùng chữ); ô mất dấu
+    trôi theo mốc, quá max_lost khung không thấy thì rụng.
     Trả (list item còn sống, số ô khớp thật khung này).
     """
     import cv2
 
     hh, ww = gray.shape[:2]
-    # Tầng 0: hướng nhảy thô của cả màn (đơn vị ảnh thu nhỏ đang xét)
+    # Cú trượt thô của cả màn (đơn vị ảnh thu nhỏ đang xét) - chỉ dùng làm
+    # một trong hai giả thuyết, không còn ép lên mọi ô như trước.
     gdx, gdy = coarse_shift(prev_gray, gray)
-    disp = []   # song song items: (dx_scaled, dy_scaled) hoặc None nếu ko khớp
+
+    def _match(tmpl, th, tw, ax, ay, r, seedx, seedy):
+        """Khớp mẫu quanh vị trí dự đoán (cũ + seed). Trả (dx,dy,score) | None."""
+        px = r.x() * scale - ax + seedx
+        py = r.y() * scale - ay + seedy
+        rx0, ry0 = max(0, int(px - margin)), max(0, int(py - margin))
+        rx1, ry1 = min(ww, int(px + tw + margin)), min(hh, int(py + th + margin))
+        vung = gray[ry0:ry1, rx0:rx1]
+        if vung.shape[0] < th or vung.shape[1] < tw:
+            return None
+        res = cv2.matchTemplate(vung, tmpl, cv2.TM_CCOEFF_NORMED)
+        _mn, mx, _ml, loc = cv2.minMaxLoc(res)
+        if mx < thr:
+            return None
+        nsx, nsy = rx0 + loc[0] + ax, ry0 + loc[1] + ay
+        return (nsx - r.x() * scale, nsy - r.y() * scale, mx)
+
+    disp = []   # song song items: (dx_scaled, dy_scaled, score) hoặc None
     for it in items:
         tmpl = it.get("_tmpl")
         if tmpl is None or tmpl.shape[0] > hh or tmpl.shape[1] > ww:
@@ -146,39 +168,32 @@ def track_frame(items, gray, prev_gray=None, scale=0.5, margin=20,
         ax, ay = it["_anchor"]
         vx, vy = it["_vel"]
         r = it["rect"]
-        # dự đoán = vị trí cũ + (mốc thô nếu có, không thì vận tốc riêng)
-        seedx = gdx if (gdx or gdy) else vx
-        seedy = gdy if (gdx or gdy) else vy
-        px = r.x() * scale - ax + seedx
-        py = r.y() * scale - ay + seedy
-        rx0, ry0 = max(0, int(px - margin)), max(0, int(py - margin))
-        rx1, ry1 = min(ww, int(px + tw + margin)), min(hh, int(py + th + margin))
-        vung = gray[ry0:ry1, rx0:rx1]
-        if vung.shape[0] < th or vung.shape[1] < tw:
-            disp.append(None)
-            continue
-        res = cv2.matchTemplate(vung, tmpl, cv2.TM_CCOEFF_NORMED)
-        _mn, mx, _ml, loc = cv2.minMaxLoc(res)
-        if mx >= thr:
-            nsx, nsy = rx0 + loc[0] + ax, ry0 + loc[1] + ay
-            disp.append((nsx - r.x() * scale, nsy - r.y() * scale))
-        else:
-            disp.append(None)
+        cands = [_match(tmpl, th, tw, ax, ay, r, vx, vy)]   # (a) chuyển động riêng
+        if gdx or gdy:
+            cands.append(_match(tmpl, th, tw, ax, ay, r, gdx, gdy))  # (b) trượt cả màn
+        cands = [c for c in cands if c is not None]
+        disp.append(max(cands, key=lambda c: c[2]) if cands else None)
 
     good = [d for d in disp if d is not None]
     bam = len(good)
-    if good:                              # mốc = độ dời trung vị của đám đông
-        med = (_median([d[0] for d in good]), _median([d[1] for d in good]))
+    # Mốc chung = trung vị của các ô khớp MẠNH (nếu có), kẻo nhóm khớp yếu/
+    # vùng chuyển động thiểu số kéo lệch mốc.
+    ref = [d for d in good if d[2] >= strong] or good
+    if ref:
+        med = (_median([d[0] for d in ref]), _median([d[1] for d in ref]))
     else:
         med = None
 
     song = []
     for it, d in zip(items, disp):
         r = it["rect"]
-        if d is not None and (med is None
-                              or (abs(d[0] - med[0]) <= tol
-                                  and abs(d[1] - med[1]) <= tol)):
-            dùng = d                       # khớp thật + hợp đám đông -> theo nó
+        if d is not None and d[2] >= strong:
+            dùng = (d[0], d[1])            # khớp chắc -> tin nó, kể cả khác đám đông
+            it["_lost"] = 0
+        elif d is not None and (med is None
+                                or (abs(d[0] - med[0]) <= tol
+                                    and abs(d[1] - med[1]) <= tol)):
+            dùng = (d[0], d[1])            # khớp yếu nhưng hợp đám đông -> theo nó
             it["_lost"] = 0
         elif med is not None:
             dùng = med                     # bám nhầm/không thấy -> theo mốc chung
@@ -198,11 +213,16 @@ def track_frame(items, gray, prev_gray=None, scale=0.5, margin=20,
     return song, bam
 
 
-def draw_items(painter, items, dpr, bounds):
+def draw_items(painter, items, dpr, bounds, bg=None, fg=None):
     """Vẽ các ô bản dịch đè lên vị trí chữ gốc, không ô nào đè lên ô nào.
 
+    bg/fg là màu nền ô và màu chữ (QColor); thiếu thì dùng màu mặc định.
     Trả về list (box, nguyên_văn, bị_cắt) để lớp kết quả bắt hover.
     """
+    if bg is None:
+        bg = QColor(24, 26, 38, 235)
+    if fg is None:
+        fg = QColor(240, 242, 250)
     pending = []
     for it in items:
         if not it["dst"]:
@@ -224,10 +244,10 @@ def draw_items(painter, items, dpr, bounds):
         layout.append((box, text, shown != text))
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(24, 26, 38, 235))
+        painter.setBrush(bg)
         painter.drawRoundedRect(box, 4, 4)
         painter.setFont(font)
-        painter.setPen(QPen(QColor(240, 242, 250)))
+        painter.setPen(QPen(fg))
         # Nới trần/sàn 5px trong vùng cắt cho dấu tiếng Việt không cụt
         painter.save()
         painter.setClipRect(box.adjusted(0, -5, 0, 5))

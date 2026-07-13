@@ -327,7 +327,7 @@ def _doc_dong_vision(text):
 def translate_vision(img_bgr, key=None, glossary=None, timeout=60):
     """OCR + dịch cùng lúc bằng Gemini nhìn thẳng vào ảnh (như Google Lens).
 
-    Bỏ qua RapidOCR - đọc dấu tiếng Việt và chữ Hán chuẩn hơn hẳn. Trả list
+    Bỏ qua OCR cục bộ (PP-OCRv5) - đọc dấu tiếng Việt và chữ Hán chuẩn hơn hẳn. Trả list
     item {rect, src, dst} với rect theo pixel của ảnh truyền vào. Lỗi -> raise.
     """
     import base64

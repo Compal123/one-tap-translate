@@ -18,7 +18,7 @@ class WorkerSignals(QObject):
 
 def _run_vision(img_bgr, signals, offset):
     """Chế độ 'Gemini nhìn ảnh': OCR + dịch một lần trên cả ảnh (như Google
-    Lens). Không dùng RapidOCR, không 2 pha. Trả True nếu xong, False nếu
+    Lens). Không dùng PP-OCRv5 cục bộ, không 2 pha. Trả True nếu xong, False nếu
     lỗi để nơi gọi lui về pipeline OCR thường."""
     try:
         items = translate_vision(img_bgr)

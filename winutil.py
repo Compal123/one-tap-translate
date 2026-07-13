@@ -82,6 +82,34 @@ def keep_topmost(widget):
         pass
 
 
+# ----- Phím tắt toàn cục (RegisterHotKey) -----
+WM_HOTKEY = 0x0312
+MOD_ALT = 0x0001
+MOD_CONTROL = 0x0002
+MOD_SHIFT = 0x0004
+MOD_NOREPEAT = 0x4000     # không tự lặp khi giữ phím
+
+
+def register_hotkey(hwnd, hk_id, mods, vk):
+    """Đăng ký phím tắt toàn cục (ăn cả khi app/game khác đang focus).
+
+    hwnd = cửa sổ nhận WM_HOTKEY; mods = tổ hợp MOD_*; vk = mã virtual-key.
+    Trả True nếu thành công (thất bại thường do phím đã bị app khác chiếm).
+    """
+    try:
+        return bool(ctypes.windll.user32.RegisterHotKey(
+            int(hwnd), int(hk_id), int(mods) | MOD_NOREPEAT, int(vk)))
+    except Exception:
+        return False
+
+
+def unregister_hotkey(hwnd, hk_id):
+    try:
+        ctypes.windll.user32.UnregisterHotKey(int(hwnd), int(hk_id))
+    except Exception:
+        pass
+
+
 def grab_screen():
     """Chụp màn hình chính, trả về ảnh BGR. Chỉ gọi từ luồng giao diện."""
     global _sct

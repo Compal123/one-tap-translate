@@ -10,8 +10,9 @@ A floating bubble for Windows that translates text on your screen — games, app
 - **Single shot** — click the bubble, get a translated snapshot of the screen, click to dismiss.
 - **Region select** — drag a rectangle, translate only that area.
 - **Mixed-language screens** — lines are grouped by writing system (Latin / Chinese / Japanese / Korean / Cyrillic...) and each group is translated with its source language set explicitly, so multiple languages on one screen all translate correctly — including traditional Chinese.
-- **Settings window** — right-click the bubble: target language (Vietnamese, English, Chinese, Japanese, Korean, Russian), scan interval, sensitivity. Saving applies immediately.
-- OCR runs locally on your machine (RapidOCR/ONNX); translation uses Google Translate.
+- **Settings window** — right-click the bubble: target language (Vietnamese, English, Chinese, Japanese, Korean, Russian), scan interval, sensitivity, **translation background & text color**. Saving applies immediately.
+- **Global hotkeys** — `Ctrl + Alt + M` switches mode, `Ctrl + Alt + T` runs the current mode (instead of clicking the bubble). Works even while another game/app is focused. Toggle in Settings.
+- OCR runs locally on your machine with **PP-OCRv5** (PaddleOCR's detect+recognize pipeline, GPU-accelerated, light & fast); translation uses Google Translate (or Gemini/Groq with a key).
 
 ## Download (no Python needed)
 
@@ -19,14 +20,25 @@ Grab `OneTapTranslate-win64.zip` from the [latest release](https://github.com/Co
 
 ## Install from source
 
-Requires Windows 10/11 and Python 3.10+.
+Requires Windows 10/11, **Python 3.12** (PaddlePaddle has no 3.13/3.14 wheels yet),
+and preferably an **NVIDIA GPU** (CUDA 12.x) so OCR runs fast.
 
 ```
 git clone https://github.com/Compal123/one-tap-translate.git
 cd one-tap-translate
-python -m venv .venv
+py -3.12 -m venv .venv
+
+REM 1) PaddlePaddle (pick one for your hardware):
+REM    - NVIDIA GPU (recommended):
+.venv\Scripts\pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+REM    - CPU only (much slower):
+REM  .venv\Scripts\pip install paddlepaddle
+
+REM 2) Everything else:
 .venv\Scripts\pip install -r requirements.txt
 ```
+
+On first run PP-OCRv5 downloads its models (~tens of MB) to `%USERPROFILE%\.paddlex` — needs the network once.
 
 ## Run
 
@@ -35,6 +47,7 @@ Double-click `run.bat` (or run `.venv\Scripts\python.exe main.py` to see logs).
 - **Click the bubble** to trigger the current mode (live toggle / single shot / region select).
 - **Right-click** to switch modes, open settings, or quit.
 - **Drag** the bubble to move it.
+- **Hotkeys**: `Ctrl + Alt + M` switches mode, `Ctrl + Alt + T` runs (instead of clicking the bubble).
 
 ## License
 

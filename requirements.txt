@@ -2,6 +2,12 @@ PySide6>=6.8
 mss>=9.0
 numpy
 opencv-python
-rapidocr>=2.0
-onnxruntime
 deep-translator>=1.11
+requests
+# OCR: PP-OCRv5 (detect + recognize) qua paddleocr, chạy trên GPU.
+# paddlepaddle-gpu KHÔNG cài từ PyPI - phải lấy từ index của Paddle theo CUDA.
+# Có GPU NVIDIA (khuyên dùng), CUDA 12.x:
+#   pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+# Chỉ có CPU (vẫn nhanh với PP-OCRv5 mobile):
+#   pip install paddlepaddle
+paddleocr>=3.0

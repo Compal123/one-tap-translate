@@ -1,28 +1,71 @@
 # -*- coding: utf-8 -*-
 """Giao diện: bong bóng nổi, các lớp overlay và cửa sổ cài đặt."""
 
+import ctypes
+import ctypes.wintypes
 import threading
 import time
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QRect, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (QAbstractNativeEventFilter, QRect, QRectF, Qt,
+                            QTimer, QUrl, Signal)
 from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont,
                            QFontMetrics, QPainter, QPen, QRadialGradient)
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
-                               QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QMenu,
-                               QPushButton, QSpinBox, QTabWidget, QTextEdit,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
+                               QDialog, QDialogButtonBox, QDoubleSpinBox,
+                               QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+                               QMenu, QPushButton, QSpinBox, QTabWidget,
+                               QTextEdit, QVBoxLayout, QWidget)
 
 from layout import capture_templates, draw_items, track_frame
 from settings import (APP_NAME, APP_VERSION, GITHUB_URL, L, S, SETTINGS,
                       save_settings)
 from translate import (GEMINI_KEY_PAGE, GROQ_KEY_PAGE, translate_gemini,
                        translate_groq)
-from winutil import (autostart_enabled, exclude_from_capture, grab_screen,
-                     keep_topmost, set_autostart)
+from winutil import (MOD_ALT, MOD_CONTROL, autostart_enabled,
+                     exclude_from_capture, grab_screen, keep_topmost,
+                     register_hotkey, set_autostart, unregister_hotkey)
 from worker import WorkerSignals, run_job
+
+# Phím tắt toàn cục: Ctrl+Alt+M đổi chế độ, Ctrl+Alt+T chạy (thay cho click).
+# (Ctrl+Alt+Space hay bị bộ gõ tiếng Việt/hệ thống chiếm nên không dùng.)
+_HK_MODE = 1
+_HK_RUN = 2
+_HOTKEYS = {_HK_MODE: (MOD_CONTROL | MOD_ALT, 0x4D),   # 'M'
+            _HK_RUN:  (MOD_CONTROL | MOD_ALT, 0x54)}   # 'T'
+_WM_HOTKEY = 0x0312
+
+
+def _color(hex_str, fallback, alpha=None):
+    """Dựng QColor từ chuỗi hex, hỏng thì dùng màu dự phòng; đặt alpha nếu có."""
+    c = QColor(hex_str)
+    if not c.isValid():
+        c = QColor(fallback)
+    if alpha is not None:
+        c.setAlpha(alpha)
+    return c
+
+
+class _HotkeyFilter(QAbstractNativeEventFilter):
+    """Bắt WM_HOTKEY từ vòng lặp thông điệp Windows rồi gọi hàm tương ứng."""
+
+    def __init__(self, handlers):
+        super().__init__()
+        self._handlers = handlers
+        self._last = {}   # id -> lần kích hoạt gần nhất, để chặn nhả kép
+
+    def nativeEventFilter(self, etype, message):
+        if etype == "windows_generic_MSG":
+            msg = ctypes.wintypes.MSG.from_address(int(message))
+            if msg.message == _WM_HOTKEY:
+                hk_id = int(msg.wParam)
+                fn = self._handlers.get(hk_id)
+                now = time.monotonic()
+                if fn and now - self._last.get(hk_id, 0) > 0.25:
+                    self._last[hk_id] = now
+                    fn()
+        return False, 0
 
 
 class FrameGrabber(threading.Thread):
@@ -89,7 +132,9 @@ class LiveOverlay(QWidget):
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        draw_items(p, self.items, self.dpr, QRectF(self.rect()))
+        draw_items(p, self.items, self.dpr, QRectF(self.rect()),
+                   bg=_color(S("mau_nen"), "#181A26", 235),
+                   fg=_color(S("mau_chu"), "#F0F2FA"))
         p.end()
 
 
@@ -126,7 +171,9 @@ class ResultOverlay(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), QColor(10, 10, 16, 110))
-        self._layout = draw_items(p, self.items, self.dpr, QRectF(self.rect()))
+        self._layout = draw_items(p, self.items, self.dpr, QRectF(self.rect()),
+                                  bg=_color(S("mau_nen"), "#181A26", 235),
+                                  fg=_color(S("mau_chu"), "#F0F2FA"))
         p.setFont(QFont("Segoe UI", 11))
         p.setPen(QPen(QColor(255, 255, 255, 180)))
         p.drawText(QRectF(0, self.height() - 46, self.width(), 30),
@@ -294,14 +341,25 @@ class SettingsDialog(QDialog):
         self.score.setValue(float(S("do_tin_cay_ocr")))
         form.addRow(L("st_score"), self.score)
 
-        self.ocr_quality = QComboBox()
-        self.ocr_quality.addItem(L("ocr_fast"), "nhanh")
-        self.ocr_quality.addItem(L("ocr_accurate"), "chinh_xac")
-        idx = self.ocr_quality.findData(S("ocr_chat_luong"))
-        self.ocr_quality.setCurrentIndex(idx if idx >= 0 else 0)
-        form.addRow(L("st_ocr_quality"), self.ocr_quality)
-
         tabs.addTab(scan, L("tab_scan"))
+
+        # --- Tab Hiển thị: màu bản dịch + phím tắt toàn cục ---
+        display = QWidget()
+        form = QFormLayout(display)
+
+        self._bg_hex = str(S("mau_nen"))
+        self._fg_hex = str(S("mau_chu"))
+        form.addRow(L("st_bg_color"), self._color_row("_bg_hex"))
+        form.addRow(L("st_fg_color"), self._color_row("_fg_hex"))
+
+        self.hotkeys = QCheckBox(L("st_hotkeys"))
+        self.hotkeys.setChecked(bool(S("phim_tat_bat")))
+        form.addRow("", self.hotkeys)
+        hint = QLabel(L("hotkey_hint"))
+        hint.setWordWrap(True)
+        form.addRow("", hint)
+
+        tabs.addTab(display, L("tab_display"))
 
         # --- Tab Engine dịch (chọn riêng từng chế độ) ---
         ai = QWidget()
@@ -370,6 +428,29 @@ class SettingsDialog(QDialog):
         layout.addWidget(tabs)
         layout.addWidget(buttons)
 
+    def _color_row(self, attr):
+        """Nút chọn màu: hiện màu hiện tại làm nền nút, bấm mở bảng màu,
+        lưu mã hex vào self.<attr>."""
+        btn = QPushButton(L("btn_pick_color"))
+
+        def paint():
+            hexs = getattr(self, attr)
+            c = QColor(hexs)
+            fg = "#000000" if c.isValid() and c.lightness() > 140 else "#ffffff"
+            btn.setStyleSheet(
+                "QPushButton{background:%s;color:%s;border:1px solid #888;"
+                "border-radius:4px;padding:5px 12px;}" % (hexs, fg))
+
+        def pick():
+            col = QColorDialog.getColor(QColor(getattr(self, attr)), self)
+            if col.isValid():
+                setattr(self, attr, col.name())
+                paint()
+
+        btn.clicked.connect(pick)
+        paint()
+        return btn
+
     def _key_row(self, field, provider):
         """Một hàng: ô key + nút 'Lấy key' + nút 'Kiểm tra' cho nhà cung cấp."""
         box = QWidget()
@@ -418,12 +499,14 @@ class SettingsDialog(QDialog):
         SETTINGS["chu_ky_quet_ms"] = self.interval.value()
         SETTINGS["nguong_thay_doi"] = round(self.threshold.value(), 2)
         SETTINGS["do_tin_cay_ocr"] = round(self.score.value(), 2)
-        SETTINGS["ocr_chat_luong"] = self.ocr_quality.currentData()
         for mode, combo in self.engine_combos.items():
             SETTINGS["engine_" + mode] = combo.currentData()
         SETTINGS["gemini_key"] = self.gemini_key.text().strip()
         SETTINGS["groq_key"] = self.groq_key.text().strip()
         SETTINGS["tu_dien_ghim"] = self.glossary.toPlainText().strip()
+        SETTINGS["mau_nen"] = self._bg_hex
+        SETTINGS["mau_chu"] = self._fg_hex
+        SETTINGS["phim_tat_bat"] = self.hotkeys.isChecked()
         set_autostart(self.autostart.isChecked())
         save_settings()
         self.on_saved()
@@ -571,6 +654,31 @@ class Bubble(QWidget):
         else:
             self.single_shot()
 
+    # ----- phím tắt toàn cục -----
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, "_hk_ready", False):
+            self._hk_ready = True
+            self._hk_filter = _HotkeyFilter({_HK_MODE: self.cycle_mode,
+                                             _HK_RUN: self.activate})
+            QApplication.instance().installNativeEventFilter(self._hk_filter)
+            self._apply_hotkeys()
+
+    def _apply_hotkeys(self):
+        """Đăng ký lại phím tắt theo cài đặt (gọi khi mở app + khi lưu cài đặt)."""
+        hwnd = int(self.winId())
+        for hk_id, (mods, vk) in _HOTKEYS.items():
+            unregister_hotkey(hwnd, hk_id)
+            if S("phim_tat_bat"):
+                register_hotkey(hwnd, hk_id, mods, vk)
+
+    def cycle_mode(self):
+        """Đổi sang chế độ kế tiếp (phím tắt Ctrl+Alt+M)."""
+        order = ["song", "mot_lan", "vung"]
+        cur = S("che_do")
+        i = order.index(cur) if cur in order else -1
+        self.set_mode(order[(i + 1) % len(order)])
+
     # ----- chế độ / cài đặt -----
     def set_mode(self, mode):
         if mode != "song" and self.live_on:
@@ -588,6 +696,8 @@ class Bubble(QWidget):
     def apply_settings(self):
         if self.live_timer.isActive():
             self.live_timer.setInterval(int(S("chu_ky_quet_ms")))
+        if getattr(self, "_hk_ready", False):
+            self._apply_hotkeys()
         self.screen_dirty = True
         self.update()
 

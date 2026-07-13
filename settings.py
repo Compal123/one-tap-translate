@@ -6,7 +6,7 @@ import os
 import sys
 
 APP_NAME = "One Tap Translate"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.2.0"
 GITHUB_URL = "https://github.com/Compal123/one-tap-translate"
 
 # Khi đóng gói thành exe (PyInstaller), file cài đặt nằm cạnh file exe
@@ -20,8 +20,7 @@ _DEFAULT_SETTINGS = {
     "che_do": "song",          # song | mot_lan | vung
     "ngon_ngu_dich": "vi",     # dịch sang ngôn ngữ nào
     "ngon_ngu_giao_dien": "vi",  # ngôn ngữ chữ trên giao diện app: vi | en
-    "do_tin_cay_ocr": 0.45,    # bỏ qua chữ OCR đọc kém tin cậy hơn mức này
-    "ocr_chat_luong": "nhanh",  # nhanh (model nhỏ) | chinh_xac (model medium, nặng hơn)
+    "do_tin_cay_ocr": 0.50,    # bỏ qua dòng PP-OCRv5 nhận kém tin cậy hơn mức này (lọc rác/icon)
     "chu_ky_quet_ms": 500,     # bao lâu quét màn hình một lần (mili giây)
     "nguong_thay_doi": 1.5,    # màn hình đổi hơn mức này = "đang cuộn/chuyển"
     # Engine dịch cho từng chế độ: google | gemini | groq (mặc định Groq
@@ -32,6 +31,9 @@ _DEFAULT_SETTINGS = {
     "gemini_key": "",          # API key Google AI Studio (chỉ lưu trên máy)
     "groq_key": "",            # API key Groq (chỉ lưu trên máy)
     "tu_dien_ghim": "",        # mỗi dòng "gốc = dịch", áp dụng khi dịch AI
+    "mau_nen": "#181A26",      # màu nền ô bản dịch (đè lên chữ gốc)
+    "mau_chu": "#F0F2FA",      # màu chữ bản dịch
+    "phim_tat_bat": True,      # bật phím tắt toàn cục (đổi chế độ / chạy)
 }
 
 SETTINGS = dict(_DEFAULT_SETTINGS)
@@ -51,6 +53,8 @@ def load_settings():
         if "ai_bat" in data:
             old_on = data.pop("ai_bat")
         old_provider = data.pop("ai_nha_cung_cap", "groq")
+        # Bỏ RapidOCR: cấu hình cũ có "chất lượng OCR" (nhanh/chính xác) giờ vô nghĩa
+        data.pop("ocr_chat_luong", None)
         if old_on is not None and "engine_mot_lan" not in data:
             engine = old_provider if old_on else "google"
             data.setdefault("engine_mot_lan", engine)
@@ -99,10 +103,13 @@ _UI_TEXT = {
                      "en": "Screen-change sensitivity:"},
     "st_score":     {"vi": "Độ tin cậy OCR tối thiểu:",
                      "en": "Minimum OCR confidence:"},
-    "st_ocr_quality": {"vi": "Chất lượng OCR:", "en": "OCR quality:"},
-    "ocr_fast":     {"vi": "Nhanh (nhẹ)", "en": "Fast (light)"},
-    "ocr_accurate": {"vi": "Chính xác (tải model ~130MB)",
-                     "en": "Accurate (downloads ~130MB model)"},
+    "tab_display": {"vi": "Hiển thị", "en": "Display"},
+    "st_bg_color": {"vi": "Màu nền bản dịch:", "en": "Translation background:"},
+    "st_fg_color": {"vi": "Màu chữ bản dịch:", "en": "Translation text:"},
+    "btn_pick_color": {"vi": "Chọn màu...", "en": "Pick color..."},
+    "st_hotkeys":  {"vi": "Bật phím tắt toàn cục", "en": "Enable global hotkeys"},
+    "hotkey_hint": {"vi": "Ctrl + Alt + M: đổi chế độ    •    Ctrl + Alt + T: chạy (thay cho nhấn bong bóng)",
+                    "en": "Ctrl + Alt + M: switch mode    •    Ctrl + Alt + T: run (instead of clicking the bubble)"},
     "btn_save":   {"vi": "Lưu", "en": "Save"},
     "btn_cancel": {"vi": "Hủy", "en": "Cancel"},
     "about_desc": {"vi": "Bong bóng nổi dịch chữ trên màn hình - bản dịch "

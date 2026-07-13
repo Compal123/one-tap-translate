@@ -1,47 +1,81 @@
 # -*- coding: utf-8 -*-
-"""OCR: đọc chữ từ ảnh màn hình bằng RapidOCR, lọc dòng đáng dịch."""
+"""OCR: đọc chữ từ ảnh màn hình bằng PP-OCRv5 (detect + recognize), lọc dòng đáng dịch."""
 
+import os
 import re
 import threading
 import unicodedata
+
+# Đặt TRƯỚC khi import paddle/paddleocr: bỏ bước "kiểm tra kết nối tới nơi chứa
+# model" của PaddleX (model đã tải sẵn trong ~/.paddlex nên không cần hỏi mạng).
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
+# QUAN TRỌNG - phải import paddle Ở MAIN THREAD: module này được main.py import
+# ngay từ đầu (chạy trên main thread). Nếu để paddle được import LẦN ĐẦU trong
+# một thread nền (vd luồng làm nóng OCR gọi paddleocr), paddle KHÔNG bật đúng
+# chế độ dynamic graph cho cả tiến trình -> nổ "int(Tensor) is not supported in
+# static graph mode" ở MỌI lần predict chạy trong thread (cả live lẫn vùng).
+# Import tại đây + disable_static() (bật chế độ dynamic/imperative) một lần là
+# chuẩn cho mọi chế độ. import paddle chỉ tốn ~1.3s lúc mở app.
+import paddle
 
 from PySide6.QtCore import QRect
 
 from settings import S
 
+paddle.disable_static()
+
 _ocr_engine = None
-_ocr_engine_quality = None   # chất lượng của engine đang giữ (để biết khi nào dựng lại)
-_ocr_lock = threading.Lock()
+_ocr_lock = threading.Lock()      # chỉ khoá lúc dựng engine
+_predict_lock = threading.Lock()  # 1 model trên GPU: chạy predict tuần tự cho an toàn
 
 
 def get_ocr():
-    """Khởi tạo RapidOCR (lần đầu mất vài giây), dựng lại nếu đổi chất lượng.
+    """Khởi tạo PP-OCRv5 (bộ detect + recognize, lần đầu tải model ~vài chục MB).
 
-    'nhanh' = model PP-OCRv6 small (nhẹ, mặc định).
-    'chinh_xac' = model PP-OCRv6 medium (đa ngôn ngữ, đọc chuẩn hơn, nặng ~130MB
-    tải lần đầu). Cả hai đều đa ngữ nên không mất tiếng Nhật/Hàn/Nga.
+    Dùng model 'mobile' cho nhẹ + nhanh (dưới ~2 giây/màn hình trên GPU), đọc
+    được chữ Hán/Latin/Nhật/Hàn... trong cùng một model. Tắt các bước phụ
+    (xoay tài liệu, nắn cong, xoay dòng chữ) vì màn hình không cần, cho nhanh.
+    Có GPU (paddlepaddle-gpu) thì paddle tự dùng GPU.
     """
-    global _ocr_engine, _ocr_engine_quality
+    global _ocr_engine
     with _ocr_lock:
-        quality = S("ocr_chat_luong")
-        if _ocr_engine is None or _ocr_engine_quality != quality:
-            from rapidocr import ModelType, RapidOCR
-            if quality == "chinh_xac":
-                params = {"Det.model_type": ModelType.MEDIUM,
-                          "Rec.model_type": ModelType.MEDIUM}
-            else:
-                params = {}
-            _ocr_engine = RapidOCR(params=params)
-            _ocr_engine_quality = quality
+        if _ocr_engine is None:
+            # paddle đã được import + bật dynamic mode ở đầu module (main thread).
+            from paddleocr import PaddleOCR
+            _ocr_engine = PaddleOCR(
+                text_detection_model_name="PP-OCRv5_mobile_det",
+                text_recognition_model_name="PP-OCRv5_mobile_rec",
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+            )
         return _ocr_engine
 
 
 def ocr_image(img_bgr):
-    """Chạy OCR, trả về list (box, text, score) thống nhất cho rapidocr v2."""
-    result = get_ocr()(img_bgr)
-    if result is None or result.txts is None:
-        return []
-    return list(zip(result.boxes, result.txts, result.scores))
+    """Chạy PP-OCRv5, trả về list (box, text, score) thống nhất với code cũ.
+
+    box = 4 điểm polygon [[x,y],...]; text = chữ đọc được; score = điểm tin cậy
+    NHẬN DẠNG thật của từng dòng (chữ rõ ~0.9+, rác/icon ~0.1-0.3). Ảnh truyền
+    vào là numpy BGR (như cv2).
+    """
+    pipe = get_ocr()
+    with _predict_lock:
+        results = list(pipe.predict(img_bgr))
+    items = []
+    for res in results:
+        j = res.json
+        data = j.get("res", j) if isinstance(j, dict) else {}
+        texts = data.get("rec_texts", [])
+        polys = data.get("rec_polys") or data.get("dt_polys") or []
+        scores = data.get("rec_scores", [])
+        for i, text in enumerate(texts):
+            if not text or i >= len(polys):
+                continue
+            score = scores[i] if i < len(scores) else 1.0
+            items.append((polys[i], text, float(score)))
+    return items
 
 
 # Ký tự CHỈ tiếng Việt mới có. Các dấu dùng chung với Pháp/Bồ/Tây Ban Nha
