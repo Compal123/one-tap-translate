@@ -21,8 +21,50 @@ from settings import (APP_NAME, APP_VERSION, GITHUB_URL, L, S, SETTINGS,
 from translate import (GEMINI_KEY_PAGE, GROQ_KEY_PAGE, translate_gemini,
                        translate_groq)
 from winutil import (autostart_enabled, exclude_from_capture, grab_screen,
-                     set_autostart)
+                     keep_topmost, set_autostart)
 from worker import WorkerSignals, run_job
+
+
+class FrameGrabber(threading.Thread):
+    """Luồng nền chụp màn hình liên tục để vòng bám không làm nghẽn giao diện.
+
+    Chụp (~33ms/lần) là việc NẶNG; nếu chạy trên luồng giao diện thì app đơ,
+    bấm tắt không ăn, spinner quay hoài. Ở đây luồng riêng chụp + chuyển xám +
+    thu nhỏ sẵn, luồng giao diện chỉ đọc khung mới nhất (rất nhẹ) để bám ô.
+    """
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self.small = None    # ảnh 160x90 để dò động
+        self.half = None     # ảnh xám nửa để bám ô
+        self.seq = 0         # số thứ tự khung, để giao diện biết có khung mới
+
+    def run(self):
+        import mss
+        sct = mss.mss()               # mss riêng cho luồng này (không dùng chung)
+        mon = sct.monitors[1]
+        while not self._stop.is_set():
+            try:
+                arr = np.asarray(sct.grab(mon))[:, :, :3]
+                gray = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
+            except Exception:
+                time.sleep(0.05)
+                continue
+            small = cv2.resize(gray, (160, 90))
+            half = cv2.resize(gray, None, fx=0.5, fy=0.5)
+            with self._lock:
+                self.small, self.half = small, half
+                self.seq += 1
+            time.sleep(0.005)
+
+    def latest(self):
+        with self._lock:
+            return self.small, self.half, self.seq
+
+    def stop(self):
+        self._stop.set()
 
 
 class LiveOverlay(QWidget):
@@ -410,6 +452,9 @@ class Bubble(QWidget):
         self.capture_safe = False   # Windows có hỗ trợ loại overlay khỏi ảnh chụp
         self.prev_small = None      # ảnh thu nhỏ của lần quét trước (dò động)
         self.track_prev_half = None  # khung xám nửa trước đó (ước lượng thô)
+        self.grabber = None         # luồng nền chụp màn hình cho vòng bám
+        self.last_seq = 0           # khung mới nhất đã xử lý (khỏi xử lại)
+        self.topmost_n = 0          # đếm nhịp để ghim luôn-trên-cùng định kỳ
         self.screen_dirty = True    # màn hình có nội dung mới chưa dịch
         self.need_templates = False  # cần chụp lại ảnh mẫu bám sau khi dịch xong
         self.last_motion = 0.0      # lúc thấy màn hình động gần nhất (giây)
@@ -557,6 +602,7 @@ class Bubble(QWidget):
         self.live_on = True
         self.prev_small = None
         self.track_prev_half = None
+        self.last_seq = 0
         self.screen_dirty = True
         self.need_templates = False
         if self.live_overlay is None:
@@ -565,10 +611,12 @@ class Bubble(QWidget):
         self.capture_safe = exclude_from_capture(self.live_overlay)
         exclude_from_capture(self)
         # Vòng chậm quyết định khi nào quét dịch. Nếu Windows loại được overlay
-        # khỏi ảnh chụp thì bật thêm vòng bám nhanh (chụp liên tục không chớp).
+        # khỏi ảnh chụp thì bật luồng chụp nền + vòng bám nhanh (chữ dính keo).
         self.live_timer.start(max(120, int(S("chu_ky_quet_ms")) // 3))
         if self.capture_safe:
-            self.track_timer.start(30)   # ~24-30fps, đủ để chữ dính như keo
+            self.grabber = FrameGrabber()
+            self.grabber.start()
+            self.track_timer.start(16)   # đọc khung mới nhất, việc nhẹ
         self.update()
         self.live_tick()
 
@@ -576,6 +624,10 @@ class Bubble(QWidget):
         self.live_on = False
         self.live_timer.stop()
         self.track_timer.stop()
+        if self.grabber is not None:
+            self.grabber.stop()
+            self.grabber = None
+        self._set_busy(False)           # gỡ kẹt spinner nếu đang quét dở
         if self.live_overlay is not None:
             self.live_overlay.set_items([])
             self.live_overlay.hide()
@@ -597,20 +649,24 @@ class Bubble(QWidget):
                 w.show()
 
     def track_tick(self):
-        """Vòng nhanh (~24-30fps): giữ mỗi ô dịch dính lấy khối chữ gốc.
+        """Vòng nhanh: giữ mỗi ô dịch dính lấy khối chữ gốc.
 
-        Chụp màn hình liên tục (overlay đã được loại khỏi ảnh chụp nên không
-        chớp), dò lại ảnh mẫu của từng ô để bám theo lúc cuộn/kéo cửa sổ, và
-        ghi nhận lúc màn hình động để vòng quét biết khi nào đứng yên.
+        Chỉ ĐỌC khung mới nhất do luồng nền chụp sẵn (việc nhẹ, không làm đơ
+        giao diện), dò lại ảnh mẫu từng ô để bám theo lúc cuộn/kéo cửa sổ.
         """
-        if not self.live_on or not self.capture_safe:
+        if not self.live_on or self.grabber is None:
             return
-        try:
-            gray = cv2.cvtColor(grab_screen(), cv2.COLOR_BGR2GRAY)
-        except Exception:
-            return
-        small = cv2.resize(gray, (160, 90))
-        half = cv2.resize(gray, None, fx=0.5, fy=0.5)
+        # Định kỳ ghim bong bóng + overlay lên trên cùng (kẻo bị app khác đè)
+        self.topmost_n = (self.topmost_n + 1) % 40
+        if self.topmost_n == 0:
+            keep_topmost(self)
+            if self.live_overlay is not None:
+                keep_topmost(self.live_overlay)
+
+        small, half, seq = self.grabber.latest()
+        if half is None or seq == self.last_seq:
+            return                       # chưa có khung mới -> khỏi làm gì
+        self.last_seq = seq
         prev_half = self.track_prev_half
         self.track_prev_half = half
         if self.prev_small is not None:

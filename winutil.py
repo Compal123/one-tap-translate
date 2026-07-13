@@ -70,6 +70,18 @@ _sct = None   # giữ lại một phiên mss dùng chung (tạo mới mỗi lầ
               # ~40ms; tái dùng còn ~5-10ms - đủ cho vòng bám tốc độ cao)
 
 
+def keep_topmost(widget):
+    """Ghim cửa sổ lên trên cùng (gọi định kỳ): cửa sổ khác - nhất là app
+    toàn màn hình - có thể cướp mất 'luôn trên cùng', khiến bong bóng chìm."""
+    HWND_TOPMOST = -1
+    SWP = 0x0001 | 0x0002 | 0x0010  # NOSIZE | NOMOVE | NOACTIVATE
+    try:
+        ctypes.windll.user32.SetWindowPos(
+            int(widget.winId()), HWND_TOPMOST, 0, 0, 0, 0, SWP)
+    except Exception:
+        pass
+
+
 def grab_screen():
     """Chụp màn hình chính, trả về ảnh BGR. Chỉ gọi từ luồng giao diện."""
     global _sct
