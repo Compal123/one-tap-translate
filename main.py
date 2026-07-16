@@ -10,7 +10,8 @@ Ba chế độ (chuột phải bong bóng để chọn, app nhớ lựa chọn):
 
 Cấu trúc mã nguồn:
 - settings.py  cài đặt (cai-dat.json) + chữ giao diện song ngữ
-- ocr.py       đọc chữ từ ảnh (PP-OCRv5 detect+recognize, trên GPU)
+- ocr.py       đọc chữ từ ảnh - 3 backend tự chọn theo máy:
+               PP-OCRv5 (GPU) / RapidOCR (CPU) / Windows OCR (máy yếu)
 - translate.py dịch Google + AI (Gemini/Groq) + bộ nhớ trong phiên
 - winutil.py   tiện ích Windows (autostart, chụp màn hình...)
 - worker.py    pipeline OCR -> dịch chạy thread nền
@@ -27,7 +28,7 @@ import cv2
 import numpy as np
 from PySide6.QtWidgets import QApplication
 
-from ocr import extract_items, get_ocr
+from ocr import extract_items, get_ocr, init_backend
 from settings import BASE_DIR, load_settings
 from translate import translate_cached
 from ui import Bubble
@@ -39,6 +40,8 @@ def _smoke(out_path):
     Chạy: OneTapTranslate.exe --smoke (app cửa sổ không có console nên
     kết quả nằm trong smoke-ket-qua.txt cạnh exe). Mã thoát 0 = OCR ổn.
     """
+    load_settings()
+    init_backend()
     img = np.full((160, 760, 3), 255, dtype=np.uint8)
     cv2.putText(img, "Hello packaged world", (30, 90),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 0), 3)
@@ -65,6 +68,7 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     load_settings()
+    init_backend()  # chốt backend OCR - bắt buộc ở main thread (xem ocr.py)
 
     bubble = Bubble()
     bubble.show()

@@ -1,33 +1,153 @@
 # -*- coding: utf-8 -*-
-"""OCR: đọc chữ từ ảnh màn hình bằng PP-OCRv5 (detect + recognize), lọc dòng đáng dịch."""
+"""OCR: đọc chữ từ ảnh màn hình, lọc dòng đáng dịch.
 
+Ba backend, chọn trong Cài đặt ("auto" = tự dò theo máy, xem _resolve):
+- paddle : PP-OCRv5 (paddleocr) - chính xác nhất, cần GPU NVIDIA mới nhanh
+- rapid  : RapidOCR (ONNX, model PP-OCRv5 mobile) - cân bằng cho máy chỉ CPU
+- windows: Windows OCR có sẵn trong Windows 10/11 - nhanh + nhẹ nhất, nhưng
+           chỉ đọc được các ngôn ngữ đã cài trong Windows (Time & Language)
+"""
+
+import asyncio
+import importlib.util
 import os
 import re
 import threading
 import unicodedata
 
-# Đặt TRƯỚC khi import paddle/paddleocr: bỏ bước "kiểm tra kết nối tới nơi chứa
-# model" của PaddleX (model đã tải sẵn trong ~/.paddlex nên không cần hỏi mạng).
-os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
-
-# QUAN TRỌNG - phải import paddle Ở MAIN THREAD: module này được main.py import
-# ngay từ đầu (chạy trên main thread). Nếu để paddle được import LẦN ĐẦU trong
-# một thread nền (vd luồng làm nóng OCR gọi paddleocr), paddle KHÔNG bật đúng
-# chế độ dynamic graph cho cả tiến trình -> nổ "int(Tensor) is not supported in
-# static graph mode" ở MỌI lần predict chạy trong thread (cả live lẫn vùng).
-# Import tại đây + disable_static() (bật chế độ dynamic/imperative) một lần là
-# chuẩn cho mọi chế độ. import paddle chỉ tốn ~1.3s lúc mở app.
-import paddle
-
+import cv2
 from PySide6.QtCore import QRect
 
 from settings import S
 
-paddle.disable_static()
+# Đặt TRƯỚC khi import paddle/paddleocr: bỏ bước "kiểm tra kết nối tới nơi chứa
+# model" của PaddleX (model đã tải sẵn trong ~/.paddlex nên không cần hỏi mạng).
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
-_ocr_engine = None
+BACKENDS = ("paddle", "rapid", "windows")
+
+_backend = None                   # backend đã chốt (init_backend / fallback)
+_engine = None                    # engine của backend đó (dựng lười)
 _ocr_lock = threading.Lock()      # chỉ khoá lúc dựng engine
-_predict_lock = threading.Lock()  # 1 model trên GPU: chạy predict tuần tự cho an toàn
+_predict_lock = threading.Lock()  # 1 engine: chạy predict tuần tự cho an toàn
+
+
+def _installed(mod):
+    try:
+        return importlib.util.find_spec(mod) is not None
+    except Exception:
+        return False
+
+
+def available_backends():
+    """{tên backend: máy này có gói để chạy không} - cho UI cài đặt + auto."""
+    return {
+        "paddle": _installed("paddle") and _installed("paddleocr"),
+        "rapid": _installed("rapidocr") or _installed("rapidocr_onnxruntime"),
+        "windows": _installed("winsdk"),
+    }
+
+
+def _paddle_has_gpu():
+    try:
+        import paddle
+        return (paddle.device.is_compiled_with_cuda()
+                and paddle.device.cuda.device_count() > 0)
+    except Exception:
+        return False
+
+
+def _resolve(choice, avail):
+    """Chốt backend: người dùng chọn đích danh thì chiều, còn 'auto' thì
+    có GPU -> paddle; không GPU -> Windows OCR (nhẹ nhất) -> RapidOCR ->
+    đường cùng mới dùng paddle chạy CPU (lag)."""
+    if choice in BACKENDS and avail.get(choice):
+        return choice
+    order = []
+    if avail["paddle"] and _paddle_has_gpu():
+        order.append("paddle")
+    if avail["windows"]:
+        order.append("windows")
+    if avail["rapid"]:
+        order.append("rapid")
+    if avail["paddle"]:
+        order.append("paddle")
+    if not order:
+        raise RuntimeError(
+            "Không có backend OCR nào - cài 'winsdk' (nhẹ nhất), 'rapidocr' "
+            "hoặc 'paddleocr' rồi mở lại app.")
+    return order[0]
+
+
+def init_backend():
+    """Chốt backend theo cài đặt. PHẢI gọi ở MAIN THREAD (sau load_settings);
+    đổi lựa chọn trong Cài đặt thì gọi lại (nút Lưu chạy trên main thread).
+
+    Lý do phải main thread: nếu paddle được import LẦN ĐẦU trong thread nền,
+    paddle không bật đúng chế độ dynamic graph cho cả tiến trình -> nổ
+    "int(Tensor) is not supported in static graph mode" ở MỌI lần predict
+    chạy trong thread. Import ở đây + disable_static() một lần là chuẩn.
+    """
+    global _backend, _engine
+    avail = available_backends()
+    with _ocr_lock:
+        _backend = _resolve(str(S("ocr_backend") or "auto"), avail)
+        _engine = None
+        # paddle nằm trong chuỗi dự phòng của mọi lựa chọn -> hễ máy có cài
+        # là import ngay tại đây (main thread), kể cả đang chọn backend khác
+        if avail["paddle"]:
+            try:
+                import paddle
+                paddle.disable_static()
+            except Exception:
+                pass
+    return _backend
+
+
+def active_backend():
+    """Backend đang dùng thật (sau auto/fallback) - cho UI hiển thị."""
+    return _backend
+
+
+def _build_engine(name):
+    if name == "paddle":
+        # Model 'mobile' nhẹ + nhanh (~2s/màn hình trên GPU), đọc Hán/Latin/
+        # Nhật/Hàn chung một model. Tắt các bước phụ (xoay tài liệu, nắn cong,
+        # xoay dòng) vì ảnh màn hình không cần, cho nhanh.
+        import paddle
+        paddle.disable_static()
+        from paddleocr import PaddleOCR
+        return PaddleOCR(
+            text_detection_model_name="PP-OCRv5_mobile_det",
+            text_recognition_model_name="PP-OCRv5_mobile_rec",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            # Tắt oneDNN: PaddlePaddle 3.3.x chạy CPU qua oneDNN bị lỗi
+            # "ConvertPirAttribute2RuntimeAttribute not support" -> tắt đi
+            # để dùng kernel CPU thường (GPU không ảnh hưởng).
+            enable_mkldnn=False,
+            # Giới hạn số luồng CPU: mặc định Paddle gồng hết luồng ->
+            # CPU nhảy 70%+ mỗi lần OCR. Số luồng lấy từ cài đặt (0 = tự
+            # động theo số nhân máy); GPU thì tham số này không ảnh hưởng.
+            cpu_threads=cpu_threads_ocr(),
+        )
+    if name == "rapid":
+        try:
+            # Mặc định của rapidocr mới (>=3.9) đã là model PP-OCRv6 small -
+            # cứ để nó tự chọn model tốt nhất nó có
+            from rapidocr import RapidOCR
+            return RapidOCR()
+        except ImportError:
+            from rapidocr_onnxruntime import RapidOCR  # gói cũ trước v2
+            return RapidOCR()
+    if name == "windows":
+        from winsdk.windows.media.ocr import OcrEngine
+        eng = OcrEngine.try_create_from_user_profile_languages()
+        if eng is None:
+            raise RuntimeError("Windows OCR: máy chưa cài language pack nào")
+        return eng
+    raise ValueError("backend lạ: %r" % name)
 
 
 def cpu_threads_ocr():
@@ -46,54 +166,57 @@ def cpu_threads_ocr():
 
 def reset_engine():
     """Xoá engine đã dựng để lần OCR kế tiếp dựng lại (vd sau khi đổi số luồng CPU)."""
-    global _ocr_engine
+    global _engine
     with _ocr_lock:
-        _ocr_engine = None
+        _engine = None
 
 
 def get_ocr():
-    """Khởi tạo PP-OCRv5 (bộ detect + recognize, lần đầu tải model ~vài chục MB).
+    """Dựng engine của backend đã chốt (lần đầu có thể phải tải model).
 
-    Dùng model 'mobile' cho nhẹ + nhanh (dưới ~2 giây/màn hình trên GPU), đọc
-    được chữ Hán/Latin/Nhật/Hàn... trong cùng một model. Tắt các bước phụ
-    (xoay tài liệu, nắn cong, xoay dòng chữ) vì màn hình không cần, cho nhanh.
-    Có GPU (paddlepaddle-gpu) thì paddle tự dùng GPU.
+    Dựng lỗi (thiếu gói, thiếu language pack, GPU trục trặc...) thì tự lui
+    xuống backend kế tiếp còn khả dụng thay vì chết hẳn.
     """
-    global _ocr_engine
+    global _backend, _engine
     with _ocr_lock:
-        if _ocr_engine is None:
-            # paddle đã được import + bật dynamic mode ở đầu module (main thread).
-            from paddleocr import PaddleOCR
-            _ocr_engine = PaddleOCR(
-                text_detection_model_name="PP-OCRv5_mobile_det",
-                text_recognition_model_name="PP-OCRv5_mobile_rec",
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                use_textline_orientation=False,
-                # Tắt oneDNN: PaddlePaddle 3.3.x chạy CPU qua oneDNN bị lỗi
-                # "ConvertPirAttribute2RuntimeAttribute not support" -> tắt đi
-                # để dùng kernel CPU thường (GPU không ảnh hưởng).
-                enable_mkldnn=False,
-                # Giới hạn số luồng CPU: mặc định Paddle gồng hết luồng ->
-                # CPU nhảy 70%+ mỗi lần OCR. Số luồng lấy từ cài đặt (0 = tự
-                # động theo số nhân máy); OCR vẫn nhanh (~0.5s/lần model mobile).
-                cpu_threads=cpu_threads_ocr(),
-            )
-        return _ocr_engine
+        if _engine is not None:
+            return _engine
+        avail = available_backends()
+        chain = [_backend or _resolve("auto", avail)]
+        for name in ("windows", "rapid", "paddle"):
+            if avail.get(name) and name not in chain:
+                chain.append(name)
+        last = None
+        for name in chain:
+            try:
+                _engine = _build_engine(name)
+                _backend = name
+                return _engine
+            except Exception as e:
+                last = e
+        raise RuntimeError("OCR: không dựng được backend nào %s - lỗi cuối: %r"
+                           % (chain, last))
 
 
 def ocr_image(img_bgr):
-    """Chạy PP-OCRv5, trả về list (box, text, score) thống nhất với code cũ.
+    """Chạy OCR, trả list (box, text, score) thống nhất cho mọi backend.
 
-    box = 4 điểm polygon [[x,y],...]; text = chữ đọc được; score = điểm tin cậy
-    NHẬN DẠNG thật của từng dòng (chữ rõ ~0.9+, rác/icon ~0.1-0.3). Ảnh truyền
-    vào là numpy BGR (như cv2).
+    box = 4 điểm polygon [[x,y],...]; text = chữ đọc được; score = điểm tin
+    cậy nhận dạng (chữ rõ ~0.9+, rác/icon ~0.1-0.3; Windows OCR không có điểm
+    nên luôn 1.0). Ảnh truyền vào là numpy BGR (như cv2).
     """
-    pipe = get_ocr()
+    eng = get_ocr()
     with _predict_lock:
-        results = list(pipe.predict(img_bgr))
+        if _backend == "paddle":
+            return _predict_paddle(eng, img_bgr)
+        if _backend == "rapid":
+            return _predict_rapid(eng, img_bgr)
+        return _predict_windows(eng, img_bgr)
+
+
+def _predict_paddle(pipe, img_bgr):
     items = []
-    for res in results:
+    for res in pipe.predict(img_bgr):
         j = res.json
         data = j.get("res", j) if isinstance(j, dict) else {}
         texts = data.get("rec_texts", [])
@@ -104,6 +227,67 @@ def ocr_image(img_bgr):
                 continue
             score = scores[i] if i < len(scores) else 1.0
             items.append((polys[i], text, float(score)))
+    return items
+
+
+def _predict_rapid(eng, img_bgr):
+    out = eng(img_bgr)
+    items = []
+    if out is None:
+        return items
+    if isinstance(out, tuple):  # rapidocr_onnxruntime cũ: (result, elapse)
+        for box, text, score in (out[0] or []):
+            items.append((box, text, float(score)))
+        return items
+    boxes = getattr(out, "boxes", None)  # rapidocr >= 2: RapidOCROutput
+    txts = getattr(out, "txts", None) or []
+    scores = getattr(out, "scores", None) or []
+    if boxes is None:
+        return items
+    for i, text in enumerate(txts):
+        if i >= len(boxes):
+            break
+        score = scores[i] if i < len(scores) else 1.0
+        items.append((boxes[i], text, float(score)))
+    return items
+
+
+def _predict_windows(eng, img_bgr):
+    from winsdk.windows.graphics.imaging import (BitmapPixelFormat,
+                                                 SoftwareBitmap)
+    from winsdk.windows.storage.streams import DataWriter
+
+    h, w = img_bgr.shape[:2]
+    # Windows OCR giới hạn cạnh ảnh (~2600px): màn 4K phải thu nhỏ trước,
+    # tọa độ kết quả nhân ngược lại cho khớp pixel gốc
+    scale = 1.0
+    lim = int(getattr(eng, "max_image_dimension", 0) or 2600)
+    if max(h, w) > lim:
+        scale = lim / float(max(h, w))
+        img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
+                             interpolation=cv2.INTER_AREA)
+        h, w = img_bgr.shape[:2]
+
+    writer = DataWriter()
+    writer.write_bytes(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2BGRA).tobytes())
+    bmp = SoftwareBitmap.create_copy_from_buffer(
+        writer.detach_buffer(), BitmapPixelFormat.BGRA8, w, h)
+
+    async def _rec():
+        return await eng.recognize_async(bmp)
+
+    res = asyncio.run(_rec())
+    items = []
+    for line in res.lines:
+        rects = [wd.bounding_rect for wd in line.words]
+        if not rects:
+            continue
+        x0 = min(r.x for r in rects) / scale
+        y0 = min(r.y for r in rects) / scale
+        x1 = max(r.x + r.width for r in rects) / scale
+        y1 = max(r.y + r.height for r in rects) / scale
+        items.append(([[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+                      line.text, 1.0))
     return items
 
 

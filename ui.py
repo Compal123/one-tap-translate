@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
                                QLabel, QLineEdit, QMenu, QPushButton, QSpinBox,
                                QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
+import ocr
 from layout import capture_templates, draw_items, track_frame
 from settings import (APP_NAME, APP_VERSION, GITHUB_URL, L, S, SETTINGS,
                       save_settings)
@@ -374,6 +375,28 @@ class SettingsDialog(QDialog):
         scan = QWidget()
         form = QFormLayout(scan)
 
+        # Backend OCR: auto (theo máy) hoặc chọn đích danh; backend chưa cài
+        # gói thì hiện mờ, không cho chọn
+        self.ocr_backend = QComboBox()
+        avail = ocr.available_backends()
+        for code in ("auto", "paddle", "rapid", "windows"):
+            label = L("ocr_" + code)
+            ok = code == "auto" or avail.get(code)
+            if not ok:
+                label += L("ocr_missing")
+            self.ocr_backend.addItem(label, code)
+            if not ok:
+                self.ocr_backend.model().item(
+                    self.ocr_backend.count() - 1).setEnabled(False)
+        idx = self.ocr_backend.findData(S("ocr_backend"))
+        self.ocr_backend.setCurrentIndex(idx if idx >= 0 else 0)
+        form.addRow(L("st_ocr_backend"), self.ocr_backend)
+
+        ocr_note = QLabel(L("ocr_note").replace(
+            "{be}", ocr.active_backend() or "?"))
+        ocr_note.setWordWrap(True)
+        form.addRow("", ocr_note)
+
         self.interval = QSpinBox()
         self.interval.setRange(100, 5000)
         self.interval.setSingleStep(100)
@@ -577,8 +600,13 @@ class SettingsDialog(QDialog):
         cpu_cu = int(S("so_luong_cpu_ocr"))
         SETTINGS["so_luong_cpu_ocr"] = self.cpu_threads.value()
         if self.cpu_threads.value() != cpu_cu:
-            import ocr
             ocr.reset_engine()
+        old_backend = S("ocr_backend")
+        SETTINGS["ocr_backend"] = self.ocr_backend.currentData()
+        if SETTINGS["ocr_backend"] != old_backend:
+            # Đổi backend áp dụng ngay - save() chạy trên main thread nên
+            # init_backend được import paddle đúng chỗ (xem ocr.py)
+            ocr.init_backend()
         for mode, combo in self.engine_combos.items():
             SETTINGS["engine_" + mode] = combo.currentData()
         SETTINGS["gemini_key"] = self.gemini_key.text().strip()
