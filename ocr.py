@@ -1,21 +1,17 @@
 # -*- coding: utf-8 -*-
 """OCR: đọc chữ từ ảnh màn hình, lọc dòng đáng dịch.
 
-Ba backend, chọn trong Cài đặt ("auto" = tự dò theo máy, xem _resolve):
+Hai backend, chọn trong Cài đặt ("auto" = tự dò theo máy, xem _resolve):
 - paddle : PP-OCRv5 (paddleocr) - chính xác nhất, cần GPU NVIDIA mới nhanh
 - rapid  : RapidOCR (ONNX, model PP-OCRv5 mobile) - cân bằng cho máy chỉ CPU
-- windows: Windows OCR có sẵn trong Windows 10/11 - nhanh + nhẹ nhất, nhưng
-           chỉ đọc được các ngôn ngữ đã cài trong Windows (Time & Language)
 """
 
-import asyncio
 import importlib.util
 import os
 import re
 import threading
 import unicodedata
 
-import cv2
 from PySide6.QtCore import QRect
 
 from settings import S
@@ -24,7 +20,7 @@ from settings import S
 # model" của PaddleX (model đã tải sẵn trong ~/.paddlex nên không cần hỏi mạng).
 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
-BACKENDS = ("paddle", "rapid", "windows")
+BACKENDS = ("paddle", "rapid")
 
 _backend = None                   # backend đã chốt (init_backend / fallback)
 _engine = None                    # engine của backend đó (dựng lười)
@@ -44,7 +40,6 @@ def available_backends():
     return {
         "paddle": _installed("paddle") and _installed("paddleocr"),
         "rapid": _installed("rapidocr") or _installed("rapidocr_onnxruntime"),
-        "windows": _installed("winsdk"),
     }
 
 
@@ -59,23 +54,21 @@ def _paddle_has_gpu():
 
 def _resolve(choice, avail):
     """Chốt backend: người dùng chọn đích danh thì chiều, còn 'auto' thì
-    có GPU -> paddle; không GPU -> Windows OCR (nhẹ nhất) -> RapidOCR ->
-    đường cùng mới dùng paddle chạy CPU (lag)."""
+    có GPU -> paddle; không GPU -> RapidOCR -> đường cùng mới dùng paddle
+    chạy CPU (lag)."""
     if choice in BACKENDS and avail.get(choice):
         return choice
     order = []
     if avail["paddle"] and _paddle_has_gpu():
         order.append("paddle")
-    if avail["windows"]:
-        order.append("windows")
     if avail["rapid"]:
         order.append("rapid")
     if avail["paddle"]:
         order.append("paddle")
     if not order:
         raise RuntimeError(
-            "Không có backend OCR nào - cài 'winsdk' (nhẹ nhất), 'rapidocr' "
-            "hoặc 'paddleocr' rồi mở lại app.")
+            "Không có backend OCR nào - cài 'rapidocr' (máy CPU) hoặc "
+            "'paddleocr' (máy có GPU) rồi mở lại app.")
     return order[0]
 
 
@@ -141,12 +134,6 @@ def _build_engine(name):
         except ImportError:
             from rapidocr_onnxruntime import RapidOCR  # gói cũ trước v2
             return RapidOCR()
-    if name == "windows":
-        from winsdk.windows.media.ocr import OcrEngine
-        eng = OcrEngine.try_create_from_user_profile_languages()
-        if eng is None:
-            raise RuntimeError("Windows OCR: máy chưa cài language pack nào")
-        return eng
     raise ValueError("backend lạ: %r" % name)
 
 
@@ -183,7 +170,7 @@ def get_ocr():
             return _engine
         avail = available_backends()
         chain = [_backend or _resolve("auto", avail)]
-        for name in ("windows", "rapid", "paddle"):
+        for name in ("rapid", "paddle"):
             if avail.get(name) and name not in chain:
                 chain.append(name)
         last = None
@@ -202,16 +189,14 @@ def ocr_image(img_bgr):
     """Chạy OCR, trả list (box, text, score) thống nhất cho mọi backend.
 
     box = 4 điểm polygon [[x,y],...]; text = chữ đọc được; score = điểm tin
-    cậy nhận dạng (chữ rõ ~0.9+, rác/icon ~0.1-0.3; Windows OCR không có điểm
-    nên luôn 1.0). Ảnh truyền vào là numpy BGR (như cv2).
+    cậy nhận dạng (chữ rõ ~0.9+, rác/icon ~0.1-0.3). Ảnh truyền vào là
+    numpy BGR (như cv2).
     """
     eng = get_ocr()
     with _predict_lock:
         if _backend == "paddle":
             return _predict_paddle(eng, img_bgr)
-        if _backend == "rapid":
-            return _predict_rapid(eng, img_bgr)
-        return _predict_windows(eng, img_bgr)
+        return _predict_rapid(eng, img_bgr)
 
 
 def _predict_paddle(pipe, img_bgr):
@@ -249,45 +234,6 @@ def _predict_rapid(eng, img_bgr):
             break
         score = scores[i] if i < len(scores) else 1.0
         items.append((boxes[i], text, float(score)))
-    return items
-
-
-def _predict_windows(eng, img_bgr):
-    from winsdk.windows.graphics.imaging import (BitmapPixelFormat,
-                                                 SoftwareBitmap)
-    from winsdk.windows.storage.streams import DataWriter
-
-    h, w = img_bgr.shape[:2]
-    # Windows OCR giới hạn cạnh ảnh (~2600px): màn 4K phải thu nhỏ trước,
-    # tọa độ kết quả nhân ngược lại cho khớp pixel gốc
-    scale = 1.0
-    lim = int(getattr(eng, "max_image_dimension", 0) or 2600)
-    if max(h, w) > lim:
-        scale = lim / float(max(h, w))
-        img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
-                             interpolation=cv2.INTER_AREA)
-        h, w = img_bgr.shape[:2]
-
-    writer = DataWriter()
-    writer.write_bytes(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2BGRA).tobytes())
-    bmp = SoftwareBitmap.create_copy_from_buffer(
-        writer.detach_buffer(), BitmapPixelFormat.BGRA8, w, h)
-
-    async def _rec():
-        return await eng.recognize_async(bmp)
-
-    res = asyncio.run(_rec())
-    items = []
-    for line in res.lines:
-        rects = [wd.bounding_rect for wd in line.words]
-        if not rects:
-            continue
-        x0 = min(r.x for r in rects) / scale
-        y0 = min(r.y for r in rects) / scale
-        x1 = max(r.x + r.width for r in rects) / scale
-        y1 = max(r.y + r.height for r in rects) / scale
-        items.append(([[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
-                      line.text, 1.0))
     return items
 
 
@@ -372,8 +318,53 @@ def should_translate(text):
     return True
 
 
+def _gop_manh_cung_dong(items):
+    """Gộp các mảnh OCR nằm trên cùng một dòng chữ và sát nhau thành một ô.
+
+    OCR hay xé một câu thành nhiều mảnh (chữ đổi đậm/màu, dính icon...);
+    mỗi mảnh đem dịch riêng vừa sai nghĩa ("Mô phỏn" + "mớ") vừa vẽ ra một
+    rừng ô vụn chồng chéo. Hai ô được gộp khi: cùng hàng (tâm dọc lệch dưới
+    nửa chiều cao), cao tương đương (chênh <60%), và khoảng cách ngang nhỏ
+    hơn ~1 chữ (theo chiều cao dòng). Chữ nối theo thứ tự trái -> phải.
+    Lặp đến khi không còn gì gộp được (một lượt có thể sót: mảnh giữa câu
+    top lệch 1-2px bị xếp sau mảnh cuối nên chỉ dính từng phần).
+    """
+    while True:
+        items.sort(key=lambda it: (it["rect"].top(), it["rect"].left()))
+        out = []
+        da_gop = False
+        for it in items:
+            r = it["rect"]
+            chu = None
+            for prev in out:
+                p = prev["rect"]
+                h = min(p.height(), r.height())
+                if h <= 0:
+                    continue
+                if abs((p.top() + p.bottom()) - (r.top() + r.bottom())) > h:
+                    continue  # lệch hàng
+                if max(p.height(), r.height()) > 1.6 * h:
+                    continue  # cỡ chữ khác hẳn (tiêu đề vs chú thích)
+                gap = max(p.left(), r.left()) - min(p.right(), r.right())
+                if gap <= max(12, int(0.9 * h)):
+                    chu = prev
+                    break
+            if chu is None:
+                out.append(it)
+                continue
+            p = chu["rect"]
+            trai, phai = (chu, it) if p.left() <= r.left() else (it, chu)
+            chu["src"] = (trai["src"] + " " + phai["src"]).strip()
+            chu["rect"] = p.united(r)
+            da_gop = True
+        items = out
+        if not da_gop:
+            return items
+
+
 def extract_items(img_bgr):
-    """OCR ảnh -> list item {rect, src, dst=''} (tọa độ pixel vật lý)."""
+    """OCR ảnh -> list item {rect, src, dst=''} (tọa độ pixel vật lý);
+    mảnh vụn cùng dòng được gộp lại thành câu trước khi dịch."""
     items = []
     for box, text, score in ocr_image(img_bgr):
         text = (text or "").strip()
@@ -397,4 +388,4 @@ def extract_items(img_bgr):
             "src": text,
             "dst": "",
         })
-    return items
+    return _gop_manh_cung_dong(items)

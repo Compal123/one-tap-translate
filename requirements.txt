@@ -5,14 +5,11 @@ opencv-python
 deep-translator>=1.11
 requests
 
-# ── OCR: 3 backend, app tự chọn theo máy (đổi được trong Cài đặt > Quét & OCR) ──
-# 1) Windows OCR - engine có sẵn trong Windows 10/11, chỉ cần gói cầu nối nhẹ.
-#    Nhanh + nhẹ nhất, hợp máy yếu; chỉ đọc ngôn ngữ đã cài trong Windows.
-winsdk
-# 2) RapidOCR (ONNX Runtime, model PP-OCRv5 mobile) - cân bằng cho máy chỉ CPU.
+# ── OCR: 2 backend, app tự chọn theo máy (đổi được trong Cài đặt > Quét & OCR) ──
+# 1) RapidOCR (ONNX Runtime, model PP-OCRv5 mobile) - cân bằng cho máy chỉ CPU.
 rapidocr>=2.0
 onnxruntime
-# 3) PP-OCRv5 (paddleocr) - chính xác nhất, khuyên dùng khi có GPU NVIDIA.
+# 2) PP-OCRv5 (paddleocr) - chính xác nhất, khuyên dùng khi có GPU NVIDIA.
 #    paddlepaddle-gpu KHÔNG cài từ PyPI - phải lấy từ index của Paddle theo CUDA:
 #      pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
 #    Máy chỉ CPU có thể `pip install paddlepaddle` nhưng chậm - nên dùng backend 1/2.

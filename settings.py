@@ -20,7 +20,7 @@ _DEFAULT_SETTINGS = {
     "che_do": "song",          # song | mot_lan | vung
     "ngon_ngu_dich": "vi",     # dịch sang ngôn ngữ nào
     "ngon_ngu_giao_dien": "vi",  # ngôn ngữ chữ trên giao diện app: vi | en
-    "ocr_backend": "auto",     # auto | paddle | rapid | windows (xem ocr.py)
+    "ocr_backend": "auto",     # auto | paddle | rapid (xem ocr.py)
     "do_tin_cay_ocr": 0.50,    # bỏ qua dòng OCR nhận kém tin cậy hơn mức này (lọc rác/icon)
     "so_luong_cpu_ocr": 0,     # số luồng CPU cho OCR; 0 = tự động theo số nhân máy (đỡ nóng CPU)
     "chu_ky_quet_ms": 500,     # bao lâu quét màn hình một lần (mili giây)
@@ -59,6 +59,9 @@ def load_settings():
         old_provider = data.pop("ai_nha_cung_cap", "groq")
         # Bỏ RapidOCR: cấu hình cũ có "chất lượng OCR" (nhanh/chính xác) giờ vô nghĩa
         data.pop("ocr_chat_luong", None)
+        # Backend Windows OCR đã bỏ (đọc kém ngôn ngữ chưa cài trong Windows)
+        if data.get("ocr_backend") == "windows":
+            data["ocr_backend"] = "auto"
         if old_on is not None and "engine_mot_lan" not in data:
             engine = old_provider if old_on else "google"
             data.setdefault("engine_mot_lan", engine)
@@ -123,17 +126,9 @@ _UI_TEXT = {
                     "en": "PP-OCR — most accurate, needs an NVIDIA GPU to be fast"},
     "ocr_rapid":   {"vi": "RapidOCR — cân bằng cho máy chỉ có CPU",
                     "en": "RapidOCR — balanced for CPU-only PCs"},
-    "ocr_windows": {"vi": "Windows OCR — nhanh + nhẹ nhất, hợp máy yếu",
-                    "en": "Windows OCR — fastest and lightest, for low-end PCs"},
     "ocr_missing": {"vi": " (chưa cài gói)", "en": " (package not installed)"},
-    "ocr_note":    {"vi": "Đang dùng: {be}. Lưu ý: Windows OCR chỉ đọc được "
-                          "ngôn ngữ đã cài trong Windows (Settings > Time & "
-                          "Language) — muốn đọc tiếng Trung/Nhật/Hàn hãy thêm "
-                          "ngôn ngữ ở đó hoặc chọn backend khác.",
-                    "en": "Active: {be}. Note: Windows OCR only reads "
-                          "languages installed in Windows (Settings > Time & "
-                          "Language) — to read Chinese/Japanese/Korean add "
-                          "the language there or pick another backend."},
+    "ocr_note":    {"vi": "Đang dùng: {be}.",
+                    "en": "Active: {be}."},
     "tab_display": {"vi": "Hiển thị", "en": "Display"},
     "st_bg_color": {"vi": "Màu nền bản dịch:", "en": "Translation background:"},
     "st_fg_color": {"vi": "Màu chữ bản dịch:", "en": "Translation text:"},

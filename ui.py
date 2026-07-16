@@ -379,7 +379,7 @@ class SettingsDialog(QDialog):
         # gói thì hiện mờ, không cho chọn
         self.ocr_backend = QComboBox()
         avail = ocr.available_backends()
-        for code in ("auto", "paddle", "rapid", "windows"):
+        for code in ("auto", "paddle", "rapid"):
             label = L("ocr_" + code)
             ok = code == "auto" or avail.get(code)
             if not ok:

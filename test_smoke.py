@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Kiểm tra nhanh pipeline OCR + dịch không cần giao diện.
 
-Chạy: python test_smoke.py [auto|paddle|rapid|windows]
+Chạy: python test_smoke.py [auto|paddle|rapid]
 (không truyền gì = backend theo cài đặt hiện tại)"""
 
 import sys

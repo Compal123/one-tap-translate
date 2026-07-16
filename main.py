@@ -10,8 +10,8 @@ Ba chế độ (chuột phải bong bóng để chọn, app nhớ lựa chọn):
 
 Cấu trúc mã nguồn:
 - settings.py  cài đặt (cai-dat.json) + chữ giao diện song ngữ
-- ocr.py       đọc chữ từ ảnh - 3 backend tự chọn theo máy:
-               PP-OCRv5 (GPU) / RapidOCR (CPU) / Windows OCR (máy yếu)
+- ocr.py       đọc chữ từ ảnh - 2 backend tự chọn theo máy:
+               PP-OCRv5 (GPU) / RapidOCR (CPU)
 - translate.py dịch Google + AI (Gemini/Groq) + bộ nhớ trong phiên
 - winutil.py   tiện ích Windows (autostart, chụp màn hình...)
 - worker.py    pipeline OCR -> dịch chạy thread nền
