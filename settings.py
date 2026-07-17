@@ -6,7 +6,7 @@ import os
 import sys
 
 APP_NAME = "One Tap Translate"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 GITHUB_URL = "https://github.com/Compal123/one-tap-translate"
 
 # Khi đóng gói thành exe (PyInstaller), file cài đặt nằm cạnh file exe
