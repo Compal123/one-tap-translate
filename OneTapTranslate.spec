@@ -23,7 +23,11 @@ datas = []
 hiddenimports = []
 for pkg in ("paddleocr", "paddlex", "paddle"):
     datas += collect_data_files(pkg)
-    hiddenimports += collect_submodules(pkg)
+    # paddle.jit.sot làm crash tiến trình quét submodule của PyInstaller
+    # (access violation) -> bỏ qua; nếu paddle import thật thì Analysis
+    # tĩnh vẫn tự kéo vào.
+    hiddenimports += collect_submodules(
+        pkg, filter=lambda n: not n.startswith("paddle.jit.sot"))
 
 a = Analysis(
     ["main.py"],
