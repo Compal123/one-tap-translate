@@ -6,7 +6,7 @@ import os
 import sys
 
 APP_NAME = "One Tap Translate"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 GITHUB_URL = "https://github.com/Compal123/one-tap-translate"
 
 # Khi đóng gói thành exe (PyInstaller), file cài đặt nằm cạnh file exe
@@ -59,7 +59,8 @@ def load_settings():
         old_provider = data.pop("ai_nha_cung_cap", "groq")
         # Bỏ RapidOCR: cấu hình cũ có "chất lượng OCR" (nhanh/chính xác) giờ vô nghĩa
         data.pop("ocr_chat_luong", None)
-        # Backend Windows OCR đã bỏ (đọc kém ngôn ngữ chưa cài trong Windows)
+        # Bỏ backend Windows OCR (chất lượng kém): cấu hình cũ trót chọn -> auto
+        data.pop("windows_ocr_lang", None)
         if data.get("ocr_backend") == "windows":
             data["ocr_backend"] = "auto"
         if old_on is not None and "engine_mot_lan" not in data:
@@ -127,8 +128,10 @@ _UI_TEXT = {
     "ocr_rapid":   {"vi": "RapidOCR — cân bằng cho máy chỉ có CPU",
                     "en": "RapidOCR — balanced for CPU-only PCs"},
     "ocr_missing": {"vi": " (chưa cài gói)", "en": " (package not installed)"},
-    "ocr_note":    {"vi": "Đang dùng: {be}.",
-                    "en": "Active: {be}."},
+    "ocr_note":    {"vi": "Đang dùng: {be}. PP-OCR chính xác nhất nhưng cần "
+                          "GPU NVIDIA; máy chỉ có CPU nên dùng RapidOCR.",
+                    "en": "Active: {be}. PP-OCR is the most accurate but "
+                          "needs an NVIDIA GPU; on CPU-only PCs use RapidOCR."},
     "tab_display": {"vi": "Hiển thị", "en": "Display"},
     "st_bg_color": {"vi": "Màu nền bản dịch:", "en": "Translation background:"},
     "st_fg_color": {"vi": "Màu chữ bản dịch:", "en": "Translation text:"},

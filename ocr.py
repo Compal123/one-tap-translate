@@ -3,7 +3,10 @@
 
 Hai backend, chọn trong Cài đặt ("auto" = tự dò theo máy, xem _resolve):
 - paddle : PP-OCRv5 (paddleocr) - chính xác nhất, cần GPU NVIDIA mới nhanh
-- rapid  : RapidOCR (ONNX, model PP-OCRv5 mobile) - cân bằng cho máy chỉ CPU
+- rapid  : RapidOCR (ONNX, model PP-OCRv6 small) - cho máy chỉ có CPU
+
+(Đã thử Windows OCR có sẵn của Windows 10/11: rất nhanh (~0.3s) nhưng chất
+lượng đọc kém hẳn + mỗi engine chỉ biết một ngôn ngữ -> bỏ.)
 """
 
 import importlib.util
@@ -54,8 +57,7 @@ def _paddle_has_gpu():
 
 def _resolve(choice, avail):
     """Chốt backend: người dùng chọn đích danh thì chiều, còn 'auto' thì
-    có GPU -> paddle; không GPU -> RapidOCR -> đường cùng mới dùng paddle
-    chạy CPU (lag)."""
+    có GPU -> paddle; không GPU -> RapidOCR; đường cùng mới paddle CPU (lag)."""
     if choice in BACKENDS and avail.get(choice):
         return choice
     order = []
@@ -67,8 +69,8 @@ def _resolve(choice, avail):
         order.append("paddle")
     if not order:
         raise RuntimeError(
-            "Không có backend OCR nào - cài 'rapidocr' (máy CPU) hoặc "
-            "'paddleocr' (máy có GPU) rồi mở lại app.")
+            "Không có backend OCR nào - cài 'rapidocr' (kèm onnxruntime) "
+            "hoặc 'paddleocr' rồi mở lại app.")
     return order[0]
 
 
@@ -189,14 +191,14 @@ def ocr_image(img_bgr):
     """Chạy OCR, trả list (box, text, score) thống nhất cho mọi backend.
 
     box = 4 điểm polygon [[x,y],...]; text = chữ đọc được; score = điểm tin
-    cậy nhận dạng (chữ rõ ~0.9+, rác/icon ~0.1-0.3). Ảnh truyền vào là
-    numpy BGR (như cv2).
+    cậy nhận dạng thật của từng dòng (chữ rõ ~0.9+, rác/icon ~0.1-0.3).
+    Ảnh truyền vào là numpy BGR (như cv2).
     """
     eng = get_ocr()
     with _predict_lock:
-        if _backend == "paddle":
-            return _predict_paddle(eng, img_bgr)
-        return _predict_rapid(eng, img_bgr)
+        if _backend == "rapid":
+            return _predict_rapid(eng, img_bgr)
+        return _predict_paddle(eng, img_bgr)
 
 
 def _predict_paddle(pipe, img_bgr):
@@ -318,53 +320,8 @@ def should_translate(text):
     return True
 
 
-def _gop_manh_cung_dong(items):
-    """Gộp các mảnh OCR nằm trên cùng một dòng chữ và sát nhau thành một ô.
-
-    OCR hay xé một câu thành nhiều mảnh (chữ đổi đậm/màu, dính icon...);
-    mỗi mảnh đem dịch riêng vừa sai nghĩa ("Mô phỏn" + "mớ") vừa vẽ ra một
-    rừng ô vụn chồng chéo. Hai ô được gộp khi: cùng hàng (tâm dọc lệch dưới
-    nửa chiều cao), cao tương đương (chênh <60%), và khoảng cách ngang nhỏ
-    hơn ~1 chữ (theo chiều cao dòng). Chữ nối theo thứ tự trái -> phải.
-    Lặp đến khi không còn gì gộp được (một lượt có thể sót: mảnh giữa câu
-    top lệch 1-2px bị xếp sau mảnh cuối nên chỉ dính từng phần).
-    """
-    while True:
-        items.sort(key=lambda it: (it["rect"].top(), it["rect"].left()))
-        out = []
-        da_gop = False
-        for it in items:
-            r = it["rect"]
-            chu = None
-            for prev in out:
-                p = prev["rect"]
-                h = min(p.height(), r.height())
-                if h <= 0:
-                    continue
-                if abs((p.top() + p.bottom()) - (r.top() + r.bottom())) > h:
-                    continue  # lệch hàng
-                if max(p.height(), r.height()) > 1.6 * h:
-                    continue  # cỡ chữ khác hẳn (tiêu đề vs chú thích)
-                gap = max(p.left(), r.left()) - min(p.right(), r.right())
-                if gap <= max(12, int(0.9 * h)):
-                    chu = prev
-                    break
-            if chu is None:
-                out.append(it)
-                continue
-            p = chu["rect"]
-            trai, phai = (chu, it) if p.left() <= r.left() else (it, chu)
-            chu["src"] = (trai["src"] + " " + phai["src"]).strip()
-            chu["rect"] = p.united(r)
-            da_gop = True
-        items = out
-        if not da_gop:
-            return items
-
-
 def extract_items(img_bgr):
-    """OCR ảnh -> list item {rect, src, dst=''} (tọa độ pixel vật lý);
-    mảnh vụn cùng dòng được gộp lại thành câu trước khi dịch."""
+    """OCR ảnh -> list item {rect, src, dst=''} (tọa độ pixel vật lý)."""
     items = []
     for box, text, score in ocr_image(img_bgr):
         text = (text or "").strip()
@@ -388,4 +345,4 @@ def extract_items(img_bgr):
             "src": text,
             "dst": "",
         })
-    return _gop_manh_cung_dong(items)
+    return items

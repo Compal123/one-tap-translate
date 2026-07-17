@@ -13,64 +13,57 @@ def _v_overlap(a, b):
     return a.top() < b.bottom() and b.top() < a.bottom()
 
 
-def _collides(box, obstacles):
-    """box có đè lên chướng ngại nào không (chạm mép ≤2px thì cho qua,
-    vì ô gốc đã được nới sẵn 1-2px để che kín chữ)."""
-    b = box.adjusted(2, 2, -2, -2)
-    for o in obstacles:
-        if b.intersects(o):
-            return True
-    return False
+def _h_overlap(left, right, b):
+    return b.left() < right and left < b.right()
 
 
-def _layout_item(text, rl, obstacles, bounds):
+def _layout_item(text, rl, others, bounds):
     """Chọn chỗ vẽ cho một câu dịch (tiếng Việt thường dài hơn chữ gốc).
 
-    Mọi ứng viên đều bị kiểm tra GIAO NHAU THẬT với các ô đã đặt và vị trí
-    chữ gốc của các ô khác - trước đây chỉ ràng mép phải/mép dưới theo vài
-    trường hợp nên các ô vẫn chồng đè nhau loạn xạ. Thử theo thứ tự:
-    (1) một dòng tại chỗ, chữ to -> nhỏ, bề ngang theo chữ;
-    (2) xuống dòng mở rộng xuống dưới nếu dưới còn trống;
-    (3) hết cách thì cắt gọn có dấu "…" trong phần trống còn lại.
+    Thử theo thứ tự: (1) vừa ô gốc, (2) nhỏ chữ + nới sang phải đến sát
+    ô khác/mép màn hình, (3) xuống dòng mở rộng xuống dưới nếu trống,
+    (4) hết cách thì cắt gọn có dấu "…".
     Trả về (box, font, flags, text_để_vẽ).
     """
     MIN_PT = 8
     size = max(MIN_PT, min(24, int(rl.height() * 0.52)))
     font = QFont("Segoe UI", size)
 
-    # 1. Một dòng tại chỗ: bề ngang ôm theo chữ (không hẹp hơn ô gốc kẻo
-    # hở chữ gốc), miễn là không tràn màn hình và không đè ai
-    for s in range(size, MIN_PT - 1, -1):
+    # 1. Vừa ô gốc (cho phép giảm tối đa 2 cỡ chữ)
+    for s in range(size, max(MIN_PT, size - 2) - 1, -1):
         font.setPointSize(s)
-        w = QFontMetrics(font).horizontalAdvance(text) + 12
-        box = QRectF(rl.left(), rl.top(), max(w, rl.width()), rl.height())
-        if box.right() <= bounds.right() - 4 and not _collides(box, obstacles):
-            return box, font, Qt.AlignVCenter | Qt.AlignLeft, text
+        if QFontMetrics(font).horizontalAdvance(text) <= rl.width() - 8:
+            return rl, font, Qt.AlignVCenter | Qt.AlignLeft, text
 
-    # Bề ngang trống tối đa: nới phải đến sát chướng ngại cùng hàng / mép màn
+    # 2. Nới sang phải đến sát ô hàng xóm / mép màn hình
     max_right = bounds.right() - 4
-    for b in obstacles:
+    for b in others:
         if _v_overlap(rl, b) and b.left() > rl.left():
             max_right = min(max_right, b.left() - 4)
     max_right = max(max_right, rl.right())  # không bao giờ hẹp hơn ô gốc
     avail_w = max_right - rl.left()
-
-    # 2. Xuống dòng, mở rộng xuống dưới nếu bên dưới còn trống
-    for s in range(min(size, 12), MIN_PT - 1, -1):
+    for s in range(size, MIN_PT - 1, -1):
         font.setPointSize(s)
-        fm = QFontMetrics(font)
-        need = fm.boundingRect(QRect(0, 0, int(avail_w) - 12, 10000),
-                               Qt.TextWordWrap, text)
-        box = QRectF(rl.left(), rl.top(), avail_w,
-                     max(need.height() + 8, rl.height()))
-        if (box.bottom() <= bounds.bottom() - 4
-                and not _collides(box, obstacles)):
-            return (box, font,
-                    Qt.AlignVCenter | Qt.AlignLeft | Qt.TextWordWrap, text)
+        w = QFontMetrics(font).horizontalAdvance(text)
+        if w <= avail_w - 8:
+            box = QRectF(rl.left(), rl.top(), w + 12, rl.height())
+            return box, font, Qt.AlignVCenter | Qt.AlignLeft, text
 
-    # 3. Hết cách: cắt gọn, có dấu "…" báo còn thiếu (rê chuột xem đủ)
+    # 3. Xuống dòng, mở rộng xuống dưới nếu bên dưới còn trống
     font.setPointSize(MIN_PT)
     fm = QFontMetrics(font)
+    max_bottom = bounds.bottom() - 4
+    for b in others:
+        if b.top() >= rl.bottom() - 1 and _h_overlap(rl.left(), max_right, b):
+            max_bottom = min(max_bottom, b.top() - 4)
+    need = fm.boundingRect(QRect(0, 0, int(avail_w) - 12, 10000),
+                           Qt.TextWordWrap, text)
+    if rl.top() + need.height() + 8 <= max_bottom:
+        box = QRectF(rl.left(), rl.top(), avail_w, need.height() + 8)
+        return (box, font,
+                Qt.AlignVCenter | Qt.AlignLeft | Qt.TextWordWrap, text)
+
+    # 4. Hết cách: cắt gọn, có dấu "…" báo còn thiếu
     elided = fm.elidedText(text, Qt.ElideRight, int(avail_w) - 12)
     box = QRectF(rl.left(), rl.top(), avail_w, rl.height())
     return box, font, Qt.AlignVCenter | Qt.AlignLeft, elided
@@ -220,44 +213,16 @@ def track_frame(items, gray, prev_gray=None, scale=0.5, margin=20,
     return song, bam
 
 
-def _blocks(pending):
-    """Chia các ô thành 'khối đoạn văn' dùng chung một nền.
+def draw_items(painter, items, dpr, bounds, bg=None, fg=None):
+    """Vẽ các ô bản dịch đè lên vị trí chữ gốc, không ô nào đè lên ô nào.
 
-    Hai dòng về chung khối khi sát nhau theo chiều dọc (hở dưới ~1/3 chiều
-    cao dòng - phụ đề, đoạn chat, đoạn mô tả nhiều dòng) và chồng ngang
-    đáng kể (>=40% bề ngang dòng hẹp hơn). Nền chung che kín chữ gốc cả
-    khối nên các dòng bên trong được phép xê dịch nhẹ mà không hở chữ gốc.
-    Trả list khối, mỗi khối là list chỉ số vào pending (đã theo thứ tự đọc).
+    bg/fg là màu nền ô và màu chữ (QColor); thiếu thì dùng màu mặc định.
+    Trả về list (box, nguyên_văn, bị_cắt) để lớp kết quả bắt hover.
     """
-    blocks = []   # mỗi khối: {"u": QRectF bao cả khối, "idx": [chỉ số]}
-    for i, (_t, rl) in enumerate(pending):
-        chon = None
-        for b in blocks:
-            u = b["u"]
-            if rl.top() - u.bottom() > 0.35 * rl.height():
-                continue  # hở dọc quá xa
-            ngang = min(u.right(), rl.right()) - max(u.left(), rl.left())
-            if ngang < 0.4 * min(u.width(), rl.width()):
-                continue  # gần như không chồng ngang (hai cột cạnh nhau)
-            chon = b
-            break
-        if chon is None:
-            blocks.append({"u": QRectF(rl), "idx": [i]})
-        else:
-            chon["idx"].append(i)
-            chon["u"] = chon["u"].united(rl)
-    return [b["idx"] for b in blocks]
-
-
-def layout_boxes(items, dpr, bounds):
-    """Tính chỗ vẽ cho mọi ô bản dịch - phần thuần, test được không cần vẽ.
-
-    Các dòng sát nhau gộp thành khối chung một nền; trong khối, dòng dưới
-    chớm đè dòng trên thì bị đẩy xuống ngay dưới (nền chung đã che kín chữ
-    gốc nên xê dịch vài px không hở gì). Khối xếp theo thứ tự đọc, khối sau
-    tự né khối trước. Trả list (panel, lines): panel = nền chung (QRectF),
-    lines = list (box, font, flags, chữ_để_vẽ, nguyên_văn).
-    """
+    if bg is None:
+        bg = QColor(24, 26, 38, 235)
+    if fg is None:
+        fg = QColor(240, 242, 250)
     pending = []
     for it in items:
         if not it["dst"]:
@@ -268,65 +233,24 @@ def layout_boxes(items, dpr, bounds):
         rl = QRectF(r.x() / dpr, r.y() / dpr,
                     r.width() / dpr, r.height() / dpr).adjusted(-2, -1, 2, 1)
         pending.append((it["dst"], rl))
-    pending.sort(key=lambda tr: (tr[1].top(), tr[1].left()))
 
     bases = [rl for _t, rl in pending]
-    placed = []   # panel các khối đã đặt
-    out = []
-    for idx_list in _blocks(pending):
-        trong = set(idx_list)
-        # Chướng ngại = chữ gốc các ô NGOÀI khối + nền các khối đã đặt
-        # (chữ gốc trong khối sẽ bị nền chung che nên không cần né)
-        ngoai = [b for j, b in enumerate(bases) if j not in trong] + placed
-        lines = []
-        prev_bottom = None
-        panel = None
-        for i in idx_list:
-            text, rl = pending[i]
-            rl = QRectF(rl)
-            if prev_bottom is not None and rl.top() < prev_bottom:
-                rl.moveTop(prev_bottom)  # dòng dưới tụt khỏi đè dòng trên
-            obstacles = ngoai + [ln[0] for ln in lines]
-            box, font, flags, shown = _layout_item(text, rl, obstacles, bounds)
-            lines.append((box, font, flags, shown, text))
-            prev_bottom = box.bottom() + 1
-            panel = box if panel is None else panel.united(box)
-        for i in idx_list:
-            panel = panel.united(pending[i][1])  # nền phải che kín chữ gốc
-        placed.append(panel)
-        out.append((panel, lines))
-    return out
-
-
-def draw_items(painter, items, dpr, bounds, bg=None, fg=None):
-    """Vẽ các ô bản dịch đè lên vị trí chữ gốc.
-
-    Dòng sát nhau chung một tấm nền (khối); vẽ 2 lượt - toàn bộ nền trước,
-    toàn bộ chữ sau - nên nền không bao giờ đè lên chữ, kể cả ca chật chội.
-    bg/fg là màu nền ô và màu chữ (QColor); thiếu thì dùng màu mặc định.
-    Trả về list (box, nguyên_văn, bị_cắt) để lớp kết quả bắt hover.
-    """
-    if bg is None:
-        bg = QColor(24, 26, 38, 235)
-    if fg is None:
-        fg = QColor(240, 242, 250)
-    khoi = layout_boxes(items, dpr, bounds)
-
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(bg)
-    for panel, _lines in khoi:
-        painter.drawRoundedRect(panel, 5, 5)
-
+    placed = []
     layout = []
-    painter.setBrush(Qt.NoBrush)
-    for _panel, lines in khoi:
-        for box, font, flags, shown, text in lines:
-            layout.append((box, text, shown != text))
-            painter.setFont(font)
-            painter.setPen(QPen(fg))
-            # Nới trần/sàn 5px trong vùng cắt cho dấu tiếng Việt không cụt
-            painter.save()
-            painter.setClipRect(box.adjusted(0, -5, 0, 5))
-            painter.drawText(box.adjusted(5, 0, -3, 0), flags, shown)
-            painter.restore()
+    for idx, (text, rl) in enumerate(pending):
+        others = [b for j, b in enumerate(bases) if j != idx] + placed
+        box, font, flags, shown = _layout_item(text, rl, others, bounds)
+        placed.append(box)
+        layout.append((box, text, shown != text))
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(box, 4, 4)
+        painter.setFont(font)
+        painter.setPen(QPen(fg))
+        # Nới trần/sàn 5px trong vùng cắt cho dấu tiếng Việt không cụt
+        painter.save()
+        painter.setClipRect(box.adjusted(0, -5, 0, 5))
+        painter.drawText(box.adjusted(5, 0, -3, 0), flags, shown)
+        painter.restore()
     return layout
