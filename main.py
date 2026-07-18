@@ -50,8 +50,6 @@ def _smoke(out_path):
     try:
         lines = [it["src"] for it in extract_items(img)]
         note.append("OCR: " + (repr(lines) if lines else "FAIL - khong doc duoc chu"))
-        from ocr import active_backend
-        note.append("Backend: %r" % active_backend())
     except Exception:
         note.append("OCR: LOI\n" + traceback.format_exc())
     if lines:

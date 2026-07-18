@@ -9,7 +9,6 @@ Hai backend, chọn trong Cài đặt ("auto" = tự dò theo máy, xem _resolve
 import importlib.util
 import os
 import re
-import sys
 import threading
 import unicodedata
 
@@ -174,21 +173,16 @@ def get_ocr():
         for name in ("rapid", "paddle"):
             if avail.get(name) and name not in chain:
                 chain.append(name)
-        errs = []
+        last = None
         for name in chain:
             try:
                 _engine = _build_engine(name)
                 _backend = name
                 return _engine
-            except Exception:
-                import traceback
-                err = "--- %s ---\n%s" % (name, traceback.format_exc())
-                errs.append(err)
-                # In ra stderr để soi được cả khi đã fallback thành công
-                # (bản console / chạy từ terminal mới thấy)
-                print("OCR backend loi:\n" + err, file=sys.stderr)
-        raise RuntimeError("OCR: không dựng được backend nào %s\n%s"
-                           % (chain, "\n".join(errs)))
+            except Exception as e:
+                last = e
+        raise RuntimeError("OCR: không dựng được backend nào %s - lỗi cuối: %r"
+                           % (chain, last))
 
 
 def ocr_image(img_bgr):

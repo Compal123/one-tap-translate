@@ -2,32 +2,28 @@
 # Đóng gói: .venv\Scripts\pyinstaller.exe OneTapTranslate.spec --noconfirm
 # Kết quả: dist\OneTapTranslate\OneTapTranslate.exe (dạng thư mục, khởi động nhanh)
 #
-# BẢN EXE = BẢN CPU, CHỈ RapidOCR (model PP-OCRv6 small đóng gói sẵn, chạy
-# offline không cần tải gì thêm). KHÔNG nhét paddle/paddleocr vào exe vì:
-#   - paddle bản GPU cần CUDA/cuDNN của đúng máy đích -> đóng gói kiểu gì
-#     cũng chết "cudnn64_9.dll not configured" trên máy khác;
-#   - paddle bản CPU thì chậm hơn RapidOCR mà nặng thêm ~700MB;
-#   - paddlex còn kiểm tra deps qua metadata pip + import sklearn/pypdfium2...
-#     kéo theo cả rổ thứ phải vá (đã thử, xem lịch sử git).
-# Ai có GPU NVIDIA muốn PP-OCR chính xác hơn -> cài từ mã nguồn (install.bat).
+# LƯU Ý: bộ model PP-OCRv5 (~vài chục MB) KHÔNG nhét vào exe - nó tự tải về
+# ~/.paddlex ở lần chạy đầu (cần mạng một lần). Máy có sẵn Python 3.12 thì chạy
+# từ mã nguồn (setup.bat) cho nhẹ hơn.
 #
-# TỐI ƯU DUNG LƯỢNG: chỉ LỌC BỎ các DLL nặng KHÔNG BAO GIỜ được nạp:
+# TỐI ƯU DUNG LƯỢNG: giữ nguyên các module Python (paddle/paddlex import lúc
+# nạp), chỉ LỌC BỎ các DLL nặng KHÔNG BAO GIỜ được nạp trong app này:
 #   - cv2 ffmpeg (đọc/ghi file video)   -> app chỉ chụp màn hình
 #   - Qt Quick/Qml/Pdf/VirtualKeyboard  -> app dùng Widgets, không dùng QML
 #   - opengl32sw (OpenGL phần mềm)       -> overlay vẽ bằng QPainter raster
+#   - pdfium.dll (render PDF)            -> không mở PDF
+# (mkldnn.dll PHẢI giữ: libpaddle.pyd liên kết cứng, thiếu là không import được.)
 import os
 
-from PyInstaller.utils.hooks import (collect_data_files, collect_submodules,
-                                     copy_metadata)
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-# rapidocr có model .onnx + config .yaml trong package + module nạp động
-# -> gom hết cho PyInstaller khỏi bỏ sót.
+# paddleocr/paddlex/paddle cần rất nhiều file data (config .yaml, .json...) +
+# module nạp động -> gom hết cho PyInstaller khỏi bỏ sót.
 datas = []
 hiddenimports = []
-for pkg in ("rapidocr",):
+for pkg in ("paddleocr", "paddlex", "paddle"):
     datas += collect_data_files(pkg)
     hiddenimports += collect_submodules(pkg)
-datas += copy_metadata("rapidocr")
 
 a = Analysis(
     ["main.py"],
@@ -37,12 +33,9 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    # paddle/paddleocr/paddlex CHỦ ĐỘNG loại khỏi exe (xem đầu file);
-    # ocr.py tự thấy thiếu gói -> chọn RapidOCR, UI hiện "(chưa cài gói)"
-    excludes=["paddle", "paddleocr", "paddlex",
-              "torch", "torchvision", "openvino", "scipy", "sklearn",
+    excludes=["torch", "torchvision", "openvino", "onnxruntime",
               "matplotlib", "PIL.ImageQt", "tkinter",
-              "IPython", "notebook", "pytest"],
+              "IPython", "notebook", "pytest", "scipy"],
     noarchive=False,
 )
 
